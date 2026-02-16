@@ -16,14 +16,15 @@ int Motor_PP = 7;   // Motor pole pairs
 /// Enable/disable individual torque contributions
 struct DialConfig
 {
-  bool enable_detent = false;
-  bool enable_vibration = false;
-  bool enable_bounds_restoration = true;
-  bool enable_oob_kick = true;
+  bool enable_detent = false;            // Enable detent mode (spring-like torque towards nearest detent positions)
+  bool enable_vibration = false;         // Enable periodic vibration pulses (for testing/debugging)
+  bool enable_bounds_restoration = true; // Enable strong corrective torque when exceeding angle bounds
+  bool enable_oob_kick = true;           // Enable out-of-bounds (OOB) kicking mode (pulsed corrective force when outside bounds)
+  bool enable_tracking = true;           // Enable position tracking towards a target
 
   // Detent mode parameters
   float detent_distance = 10 * 3.1415926 / 180.0; // One detent position every ~10 degrees
-  float detent_kp = 10.0;                         // Proportional gain for detent spring effect
+  float detent_kp = 5.0;                          // Proportional gain for detent spring effect
   float detent_max_torque = 1.0;                  // Maximum absolute torque magnitude (A)
 
   // Bounds restoration parameters
@@ -31,6 +32,11 @@ struct DialConfig
   float bounds_max_angle = 3.1415926;  // Maximum allowed angle (radians, ~+180°)
   float bounds_kp = 20.0;              // Proportional gain for bounds correction (larger than detent)
   float bounds_max_torque = 3.0;       // Maximum absolute torque magnitude (A)
+
+  // Tracking position parameters
+  float tracking_position = 0.0;   // Target position to track towards (radians)
+  float tracking_kp = 5.0;         // Proportional gain for position tracking
+  float tracking_max_torque = 2.0; // Maximum absolute torque magnitude (A)
 
   // Vibration/debug parameters
   float vibration_amplitude = 1.0;                  // Amplitude of vibration test pulse (A)
@@ -45,22 +51,22 @@ struct DialConfig
 class Dial
 {
 private:
-  unsigned long last_vibration_time_local;   // Timestamp of last vibration pulse
-  unsigned long last_kick_time_local;        // Timestamp of last out-of-bounds kick
-  bool kick_state;                           // State flag for kick pulse (unused in current implementation)
+  unsigned long last_vibration_time_local; // Timestamp of last vibration pulse
+  unsigned long last_kick_time_local;      // Timestamp of last out-of-bounds kick
+  bool kick_state;                         // State flag for kick pulse (unused in current implementation)
 
 public:
-  int motor_index;                           // Which motor this dial controls (0 or 1)
-  DialConfig *cfg;                           // Pointer to configuration settings
-  float last_torque;                         // Last calculated torque value (A)
-  float last_angle;                          // Last measured motor angle (radians)
+  int motor_index;   // Which motor this dial controls (0 or 1)
+  DialConfig *cfg;   // Pointer to configuration settings
+  float last_torque; // Last calculated torque value (A)
+  float last_angle;  // Last measured motor angle (radians)
 
   Dial(int idx = 0, DialConfig *c = nullptr)
   {
-    motor_index = idx;              // Store motor index referencing
-    cfg = c;                        // Bind to configuration structure
-    last_vibration_time_local = 0;  // Initialize vibration timer
-    last_angle = 0.0;               // Initialize angle tracking
+    motor_index = idx;             // Store motor index referencing
+    cfg = c;                       // Bind to configuration structure
+    last_vibration_time_local = 0; // Initialize vibration timer
+    last_angle = 0.0;              // Initialize angle tracking
   }
 
   void begin()
@@ -96,12 +102,27 @@ public:
       torque = -cfg->detent_max_torque;
     return torque;
   }
+
+  float calculate_tracking_torque(float current_angle)
+  {
+    // Apply corrective force to bring dial towards tracking_position target
+    float error = cfg->tracking_position - current_angle;
+    float torque = cfg->tracking_kp * error;
+
+    // Clamp torque to maximum allowed magnitude
+    if (torque > cfg->tracking_max_torque)
+      torque = cfg->tracking_max_torque;
+    else if (torque < -cfg->tracking_max_torque)
+      torque = -cfg->tracking_max_torque;
+    return torque;
+  }
+
   float calculate_oob_kick_torque(unsigned long now)
   {
     // Out-of-bounds (OOB) kicking: click at configured frequency, direction towards corrective side
     // Only generate kick when outside bounds
     if (last_angle <= cfg->bounds_max_angle && last_angle >= cfg->bounds_min_angle)
-      return 0.0;  // Within bounds, no corrective kicks needed
+      return 0.0; // Within bounds, no corrective kicks needed
 
     // Determine direction: negative if above max, positive if below min
     float sign = (last_angle > cfg->bounds_max_angle) ? -1.0f : 1.0f;
@@ -110,7 +131,7 @@ public:
     if (now - last_kick_time_local >= cfg->oob_kick_pulse_interval_ms)
     {
       last_kick_time_local = now;
-      kick_state = !kick_state;  // Toggle for alternating kicks (currently unused)
+      kick_state = !kick_state; // Toggle for alternating kicks (currently unused)
     }
 
     if (kick_state)
@@ -124,9 +145,9 @@ public:
     if (now - last_vibration_time_local >= cfg->vibration_pulse_interval_ms)
     {
       last_vibration_time_local = now;
-      return cfg->vibration_amplitude;  // Send pulse
+      return cfg->vibration_amplitude; // Send pulse
     }
-    return 0.0;  // No pulse in this cycle
+    return 0.0; // No pulse in this cycle
   }
 
   float calculate_bounds_torque(float current_angle)
@@ -150,7 +171,7 @@ public:
         torque = cfg->bounds_max_torque;
       return torque;
     }
-    return 0.0;  // Within bounds
+    return 0.0; // Within bounds
   }
 
   float calculate_composite_torque(unsigned long now)
@@ -162,6 +183,8 @@ public:
     // Add individual torque contributions based on enabled features
     if (cfg->enable_detent)
       total += calculate_detent_torque(last_angle);
+    if (cfg->enable_tracking)
+      total += calculate_tracking_torque(last_angle);
     if (cfg->enable_vibration)
       total += calculate_vibration_torque(now);
     if (cfg->enable_bounds_restoration)
@@ -200,16 +223,16 @@ public:
 DialConfig dial_config;
 
 // Create per-dial instances (after class definition)
-Dial dial0(0, &dial_config);  // Motor 0 controller
-Dial dial1(1, &dial_config);  // Motor 1 controller
+Dial dial0(0, &dial_config); // Motor 0 controller
+Dial dial1(1, &dial_config); // Motor 1 controller
 
 // FPS and timing statistics for performance monitoring
-#define DEBUG_PRINT_INTERVAL 20   // Print interval (ms) - can be changed without affecting FPS accuracy
-#define FPS_MEASURE_INTERVAL 1000 // FPS measurement window (ms) - independent of print interval
-unsigned long last_print_time = 0;    // Last time debug info was printed
-unsigned long last_fps_time = 0;      // Last time FPS was calculated
-unsigned long frame_count = 0;        // Number of loop cycles in current FPS window
-float last_calculated_fps = 0.0;      // Last calculated FPS value
+#define DEBUG_PRINT_INTERVAL 20    // Print interval (ms) - can be changed without affecting FPS accuracy
+#define FPS_MEASURE_INTERVAL 1000  // FPS measurement window (ms) - independent of print interval
+unsigned long last_print_time = 0; // Last time debug info was printed
+unsigned long last_fps_time = 0;   // Last time FPS was calculated
+unsigned long frame_count = 0;     // Number of loop cycles in current FPS window
+float last_calculated_fps = 0.0;   // Last calculated FPS value
 
 // ==================== INITIALIZATION ====================
 
@@ -223,9 +246,9 @@ void setup()
   digitalWrite(12, HIGH); // Motor Enable, must be placed before motor calibration
 
   // Configure motor driver voltage and align Hall sensors
-  DFOC_Vbus(12); // Set driver power supply voltage to 12V
-  DFOC_M0_alignSensor(Motor_PP, Sensor_DIR);  // Calibrate motor 0 sensor
-  DFOC_M1_alignSensor(Motor_PP, Sensor_DIR);  // Calibrate motor 1 sensor
+  DFOC_Vbus(12);                             // Set driver power supply voltage to 12V
+  DFOC_M0_alignSensor(Motor_PP, Sensor_DIR); // Calibrate motor 0 sensor
+  DFOC_M1_alignSensor(Motor_PP, Sensor_DIR); // Calibrate motor 1 sensor
 
   // Initialize per-dial state and timers
   dial0.begin();
@@ -256,27 +279,27 @@ void loop()
     last_fps_time = current_time;
   }
 
-  // ==================== DEBUG OUTPUT ====================
-  // Print debug info every DEBUG_PRINT_INTERVAL milliseconds (independent of FPS measurement)
+  // ==================== DATA TRANSMISSION ====================
+  // Send structured telemetry data at regular intervals for Python script processing
+  // Format: Field labels with colon separators, comma-delimited values
+  // Example: T:12345,F:60.5,M0T:0.5,M0A:45.2,M1T:0.3,M1A:-90.1
   if (current_time - last_print_time >= DEBUG_PRINT_INTERVAL)
   {
-    // Format: timestamp | FPS | Motor 0 torque & angle | Motor 1 torque & angle
-    Serial.print("t=");
+    // Transmit data in structured key:value format separated by commas
+    Serial.print("T:");
     Serial.print(current_time);
-    Serial.print(" | FPS: ");
-    Serial.print(last_calculated_fps, 1); // Display last calculated FPS (1 decimal place)
-    Serial.print(" | M0 Torque: ");
-    Serial.print(dial0.last_torque, 2);
-    Serial.print(" A | M0 Angle: ");
-    Serial.print(dial0.last_angle * 180 / 3.1415926, 1);
-    Serial.print(" deg | M1 Torque: ");
-    Serial.print(dial1.last_torque, 2);
-    Serial.print(" A | M1 Angle: ");
-    Serial.print(dial1.last_angle * 180 / 3.1415926, 1);
-    Serial.println(" deg");
+    Serial.print(",F:");
+    Serial.print(last_calculated_fps, 1); // FPS with 1 decimal place
+    Serial.print(",M0T:");
+    Serial.print(dial0.last_torque, 2); // Motor 0 torque with 2 decimal places
+    Serial.print(",M0A:");
+    Serial.print(dial0.last_angle * 180 / 3.1415926, 1); // Motor 0 angle in degrees with 1 decimal
+    Serial.print(",M1T:");
+    Serial.print(dial1.last_torque, 2); // Motor 1 torque with 2 decimal places
+    Serial.print(",M1A:");
+    Serial.print(dial1.last_angle * 180 / 3.1415926, 1); // Motor 1 angle in degrees with 1 decimal
+    Serial.println();                                    // End of message with newline for frame synchronization
 
     last_print_time = current_time;
   }
-
-
 }
