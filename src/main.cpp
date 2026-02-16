@@ -1,28 +1,28 @@
 // Example: Detent + Vibration Mode
 //  DengFOC V0.2
-//  灯哥开源，遵循GNU协议，转载请著名版权！
-//  GNU开源协议（GNU General Public License, GPL）是一种自由软件许可协议，保障用户能够自由地使用、研究、分享和修改软件。
-//  该协议的主要特点是，要求任何修改或衍生的作品必须以相同的方式公开发布，即必须开源。此外，该协议也要求在使用或分发软件时，必须保留版权信息和许可协议。GNU开源协议是自由软件基金会（FSF）制定和维护的一种协议，常用于GNU计划的软件和其他自由软件中。
-//  仅在DengFOC官方硬件上测试过，欢迎硬件购买/支持作者，淘宝搜索店铺：灯哥开源
-//  你的支持将是接下来做视频和持续开源的经费，灯哥在这里先谢谢大家了
+//  DengFOC open source, follow GNU protocol, please indicate copyright when reprinting!
+//  GNU GPL (GNU General Public License) is a free software license that ensures users can freely use, study, share and modify software.
+//  The main feature of this protocol is that any modifications or derivative works must be publicly released in the same way, i.e., must be open source. Additionally, the protocol requires that copyright information and license agreements be retained when using or distributing software. GNU GPL is a protocol established and maintained by the Free Software Foundation (FSF), commonly used in GNU project software and other free software.
+//  Only tested on official DengFOC hardware, welcome to purchase hardware/support the author, search Taobao shop: DengFOC open source
+//  Your support will be the funding for making videos and continuing open source, DengGe thanks everyone here
 
 #include "DengFOC.h"
 
 // ==================== MOTOR CONFIGURATION ====================
-int Sensor_DIR = 1; // 传感器方向，若电机运动不正常，将此值取反
-int Motor_PP = 7;   // 电机极对数
+int Sensor_DIR = 1; // Sensor direction, reverse this value if motor operation is abnormal
+int Motor_PP = 7;   // Motor pole pairs
 
 // ==================== TORQUE CONTROL CONFIGURATION ====================
 /// Enable/disable individual torque contributions
 struct DialConfig
 {
-  bool enable_detent = true;
+  bool enable_detent = false;
   bool enable_vibration = false;
   bool enable_bounds_restoration = true;
   bool enable_oob_kick = true;
 
   // Detent mode parameters
-  float detent_distance = 10 * 3.1415926 / 180.0; // 八分度，一分度45°
+  float detent_distance = 10 * 3.1415926 / 180.0; // One detent position every ~10 degrees
   float detent_kp = 10.0;                         // Proportional gain for detent spring effect
   float detent_max_torque = 1.0;                  // Maximum absolute torque magnitude (A)
 
@@ -44,25 +44,28 @@ struct DialConfig
 // Dial class encapsulates per-motor state and behavior
 class Dial
 {
+private:
+  unsigned long last_vibration_time_local;   // Timestamp of last vibration pulse
+  unsigned long last_kick_time_local;        // Timestamp of last out-of-bounds kick
+  bool kick_state;                           // State flag for kick pulse (unused in current implementation)
+
 public:
-  int motor_index;
-  DialConfig *cfg;
-  unsigned long last_vibration_time_local;
-  float last_torque;
-  float last_angle;
-  unsigned long last_kick_time_local;
-  bool kick_state;
+  int motor_index;                           // Which motor this dial controls (0 or 1)
+  DialConfig *cfg;                           // Pointer to configuration settings
+  float last_torque;                         // Last calculated torque value (A)
+  float last_angle;                          // Last measured motor angle (radians)
 
   Dial(int idx = 0, DialConfig *c = nullptr)
   {
-    motor_index = idx;
-    cfg = c;
-    last_vibration_time_local = 0;
-    last_angle = 0.0;
+    motor_index = idx;              // Store motor index referencing
+    cfg = c;                        // Bind to configuration structure
+    last_vibration_time_local = 0;  // Initialize vibration timer
+    last_angle = 0.0;               // Initialize angle tracking
   }
 
   void begin()
   {
+    // Initialize timing for vibration and kick effects
     last_vibration_time_local = millis();
     last_kick_time_local = 0;
     kick_state = false;
@@ -73,57 +76,65 @@ public:
   /// @return Current motor angle (radians)
   float get_motor_angle(int motor_index)
   {
+    // Retrieve angle from appropriate motor based on index
     return (motor_index == 0) ? DFOC_M0_Angle() : DFOC_M1_Angle();
     last_kick_time_local = millis();
   }
 
   float calculate_detent_torque(float current_angle)
   {
+    // Find nearest detent position and apply spring-like restoration force
     float nearest_detent_angle = round(current_angle / cfg->detent_distance) * cfg->detent_distance;
     float error = nearest_detent_angle - current_angle;
+    // Compute torque using spring formula: torque = kp * error, where kp is the detent stiffness
     float torque = cfg->detent_kp * error;
+
+    // Clamp torque to maximum allowed magnitude
     if (torque > cfg->detent_max_torque)
       torque = cfg->detent_max_torque;
     else if (torque < -cfg->detent_max_torque)
       torque = -cfg->detent_max_torque;
     return torque;
   }
-  // Out-of-bounds (OOB) kicking: click at configured frequency, direction towards corrective side
   float calculate_oob_kick_torque(unsigned long now)
   {
+    // Out-of-bounds (OOB) kicking: click at configured frequency, direction towards corrective side
     // Only generate kick when outside bounds
     if (last_angle <= cfg->bounds_max_angle && last_angle >= cfg->bounds_min_angle)
-      return 0.0;
+      return 0.0;  // Within bounds, no corrective kicks needed
+
+    // Determine direction: negative if above max, positive if below min
     float sign = (last_angle > cfg->bounds_max_angle) ? -1.0f : 1.0f;
 
+    // Apply pulsed kick at configured interval
     if (now - last_kick_time_local >= cfg->oob_kick_pulse_interval_ms)
     {
       last_kick_time_local = now;
-      // kick_state = !kick_state;
-      return sign * cfg->oob_kick_amplitude;
+      kick_state = !kick_state;  // Toggle for alternating kicks (currently unused)
     }
 
-    // if (!kick_state)
+    if (kick_state)
+      return sign * cfg->oob_kick_amplitude;
     return 0.0;
-
-    // Direction: if above max angle => restore (negative), if below min => positive
-    // return sign * cfg->oob_kick_amplitude;
   }
 
   float calculate_vibration_torque(unsigned long now)
   {
+    // Generate periodic vibration pulses at configured interval
     if (now - last_vibration_time_local >= cfg->vibration_pulse_interval_ms)
     {
       last_vibration_time_local = now;
-      return cfg->vibration_amplitude;
+      return cfg->vibration_amplitude;  // Send pulse
     }
-    return 0.0;
+    return 0.0;  // No pulse in this cycle
   }
 
   float calculate_bounds_torque(float current_angle)
   {
+    // Apply corrective torque when angle exceeds bounds (stronger than detent)
     if (current_angle > cfg->bounds_max_angle)
     {
+      // Above maximum: apply negative (restoring) torque
       float error = current_angle - cfg->bounds_max_angle;
       float torque = -cfg->bounds_kp * error;
       if (torque < -cfg->bounds_max_torque)
@@ -132,19 +143,23 @@ public:
     }
     else if (current_angle < cfg->bounds_min_angle)
     {
+      // Below minimum: apply positive (restoring) torque
       float error = cfg->bounds_min_angle - current_angle;
       float torque = cfg->bounds_kp * error;
       if (torque > cfg->bounds_max_torque)
         torque = cfg->bounds_max_torque;
       return torque;
     }
-    return 0.0;
+    return 0.0;  // Within bounds
   }
 
   float calculate_composite_torque(unsigned long now)
   {
+    // Combine all enabled torque effects into single control value
     last_angle = get_motor_angle(motor_index);
     float total = 0.0;
+
+    // Add individual torque contributions based on enabled features
     if (cfg->enable_detent)
       total += calculate_detent_torque(last_angle);
     if (cfg->enable_vibration)
@@ -155,12 +170,14 @@ public:
     // Out-of-bounds kicking: additional pulsed corrective force when outside bounds
     if (cfg->enable_oob_kick)
       total += calculate_oob_kick_torque(now);
+
     last_torque = total;
     return total;
   }
 
   void apply_torque(float torque)
   {
+    // Send calculated torque command to appropriate motor
     if (motor_index == 0)
       DFOC_M0_setTorque_current(torque);
     else
@@ -170,59 +187,67 @@ public:
 
   void calculate_and_apply_composite_torque()
   {
+    // Main control loop: calculate all torques and apply to motor
     unsigned long now = millis();
     float t = calculate_composite_torque(now);
     apply_torque(t);
   }
 };
 
+// ==================== GLOBAL INSTANCES AND CONSTANTS ====================
+
 // Current configuration (easy to modify)
 DialConfig dial_config;
 
 // Create per-dial instances (after class definition)
-Dial dial0(0, &dial_config);
-Dial dial1(1, &dial_config);
+Dial dial0(0, &dial_config);  // Motor 0 controller
+Dial dial1(1, &dial_config);  // Motor 1 controller
 
-// FPS stats
+// FPS and timing statistics for performance monitoring
 #define DEBUG_PRINT_INTERVAL 20   // Print interval (ms) - can be changed without affecting FPS accuracy
 #define FPS_MEASURE_INTERVAL 1000 // FPS measurement window (ms) - independent of print interval
-unsigned long last_print_time = 0;
-unsigned long last_fps_time = 0;
-unsigned long frame_count = 0;
-float last_calculated_fps = 0.0;
+unsigned long last_print_time = 0;    // Last time debug info was printed
+unsigned long last_fps_time = 0;      // Last time FPS was calculated
+unsigned long frame_count = 0;        // Number of loop cycles in current FPS window
+float last_calculated_fps = 0.0;      // Last calculated FPS value
 
-// ==================== TORQUE CONTRIBUTION FUNCTIONS ====================
+// ==================== INITIALIZATION ====================
 
 void setup()
 {
+  // Initialize serial communication for debugging
   Serial.begin(115200);
+
+  // Initialize motor enable pin (GPIO 12)
   pinMode(12, OUTPUT);
-  digitalWrite(12, HIGH); // 使能，一定要放在校准电机前
+  digitalWrite(12, HIGH); // Motor Enable, must be placed before motor calibration
 
-  DFOC_Vbus(12); // 设定驱动器供电电压
-  DFOC_M0_alignSensor(Motor_PP, Sensor_DIR);
-  DFOC_M1_alignSensor(Motor_PP, Sensor_DIR);
+  // Configure motor driver voltage and align Hall sensors
+  DFOC_Vbus(12); // Set driver power supply voltage to 12V
+  DFOC_M0_alignSensor(Motor_PP, Sensor_DIR);  // Calibrate motor 0 sensor
+  DFOC_M1_alignSensor(Motor_PP, Sensor_DIR);  // Calibrate motor 1 sensor
 
-  // Initialize per-dial state
+  // Initialize per-dial state and timers
   dial0.begin();
   dial1.begin();
 }
+
+// ==================== MAIN CONTROL LOOP ====================
 
 void loop()
 {
   unsigned long current_time = millis();
   frame_count++;
 
-  // ==================== MOTOR 0 CONTROL ====================
-
-  // Update sensors
+  // ==================== FOC & MOTOR CONTROL ====================
+  // Run field-oriented control updates and read sensor feedback
   runFOC();
 
-  // Calculate and apply composite torque per-dial
+  // Calculate all enabled torque effects and apply to motors
   dial0.calculate_and_apply_composite_torque();
   dial1.calculate_and_apply_composite_torque();
 
-  // ==================== FPS CALCULATION ====================
+  // ==================== PERFORMANCE METRICS ====================
   // Measure FPS over independent measurement window (decoupled from print interval)
   if (current_time - last_fps_time >= FPS_MEASURE_INTERVAL)
   {
@@ -232,10 +257,10 @@ void loop()
   }
 
   // ==================== DEBUG OUTPUT ====================
-
   // Print debug info every DEBUG_PRINT_INTERVAL milliseconds (independent of FPS measurement)
   if (current_time - last_print_time >= DEBUG_PRINT_INTERVAL)
   {
+    // Format: timestamp | FPS | Motor 0 torque & angle | Motor 1 torque & angle
     Serial.print("t=");
     Serial.print(current_time);
     Serial.print(" | FPS: ");
@@ -253,9 +278,5 @@ void loop()
     last_print_time = current_time;
   }
 
-  // Optional: Uncomment for detailed debugging
-  // Serial.print("Mechanical Angle: ");
-  // Serial.print(get_motor_angle(0) * 180 / 3.1415926);
-  // Serial.print(" deg, Torque: ");
-  // Serial.println(dial0.last_torque);
+
 }
