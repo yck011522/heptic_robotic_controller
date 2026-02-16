@@ -41,6 +41,14 @@ class DialVisualizer:
             "M1_angle": 0.0,
         }
 
+        # Joint positions (controlled by knobs with rate limiting)
+        self.joint_positions = {
+            "J0": 0.0,  # Joint 0 position (degrees)
+            "J1": 0.0,  # Joint 1 position (degrees)
+        }
+        self.joint_max_rate = 20.0  # Maximum rate of change (degrees/second)
+        self.last_joint_update_time = 0.0  # Timestamp of last joint update
+
         # Data history for optional plotting
         self.history_size = 100
         self.history = {
@@ -128,6 +136,18 @@ class DialVisualizer:
 
         self.m1_torque_var = tk.StringVar(value="Torque: 0.00 A")
         ttk.Label(control_frame, textvariable=self.m1_torque_var).pack(anchor=tk.W)
+
+        ttk.Label(control_frame, text="Joint 0:", font=("Arial", 10, "bold")).pack(
+            anchor=tk.W, pady=(10, 0)
+        )
+        self.j0_angle_var = tk.StringVar(value="Position: 0.0°")
+        ttk.Label(control_frame, textvariable=self.j0_angle_var).pack(anchor=tk.W)
+
+        ttk.Label(control_frame, text="Joint 1:", font=("Arial", 10, "bold")).pack(
+            anchor=tk.W, pady=(10, 0)
+        )
+        self.j1_angle_var = tk.StringVar(value="Position: 0.0°")
+        ttk.Label(control_frame, textvariable=self.j1_angle_var).pack(anchor=tk.W)
 
         # Plot area
         self.fig = Figure(figsize=(10, 6), dpi=80)
@@ -235,6 +255,51 @@ class DialVisualizer:
         self.m0_torque_var.set(f"Torque: {self.data['M0_torque']:.2f} A")
         self.m1_angle_var.set(f"Angle: {self.data['M1_angle']:.1f}°")
         self.m1_torque_var.set(f"Torque: {self.data['M1_torque']:.2f} A")
+        self.j0_angle_var.set(f"Position: {self.joint_positions['J0']:.1f}°")
+        self.j1_angle_var.set(f"Position: {self.joint_positions['J1']:.1f}°")
+
+    def update_joint_positions(self):
+        """Update J0 and J1 positions based on knob positions with rate limiting
+
+        Implements slew rate limiting: joints can change at most 20 deg/s towards
+        their target positions (defined by the knobs M0 and M1).
+        """
+        import time
+
+        current_time = time.time()
+        time_delta = current_time - self.last_joint_update_time
+
+        if time_delta <= 0:
+            return  # Skip if time hasn't advanced
+
+        self.last_joint_update_time = current_time
+
+        # Maximum change allowed in this time step
+        max_change = self.joint_max_rate * time_delta
+
+        # Update J0 (controlled by M0)
+        target_j0 = self.data["M0_angle"]
+        current_j0 = self.joint_positions["J0"]
+        error_j0 = target_j0 - current_j0
+
+        if abs(error_j0) > max_change:
+            # Rate limited: move towards target at max rate
+            self.joint_positions["J0"] += max_change if error_j0 > 0 else -max_change
+        else:
+            # Close enough: snap to target
+            self.joint_positions["J0"] = target_j0
+
+        # Update J1 (controlled by M1)
+        target_j1 = self.data["M1_angle"]
+        current_j1 = self.joint_positions["J1"]
+        error_j1 = target_j1 - current_j1
+
+        if abs(error_j1) > max_change:
+            # Rate limited: move towards target at max rate
+            self.joint_positions["J1"] += max_change if error_j1 > 0 else -max_change
+        else:
+            # Close enough: snap to target
+            self.joint_positions["J1"] = target_j1
 
     def scheduled_gui_update(self):
         """Periodically update GUI from main thread at throttled rate
@@ -248,6 +313,8 @@ class DialVisualizer:
 
         # Always update text labels if data is available
         if self.data_dirty:
+            # Update joint positions (with rate limiting)
+            self.update_joint_positions()
             self.update_display()
 
             # Update plot only at throttled interval
@@ -298,8 +365,18 @@ class DialVisualizer:
         m1_torque = self.data["M1_torque"]
         self.draw_arrow(m1_angle, m1_torque, 1.0, label="M1", color="red")
 
+        # Draw Joint 0 position (dashed line for reference)
+        self.draw_joint_marker(
+            self.joint_positions["J0"], 0.5, label="J0", color="darkblue", style="--"
+        )
+
+        # Draw Joint 1 position (dashed line for reference)
+        self.draw_joint_marker(
+            self.joint_positions["J1"], 0.0, label="J1", color="darkred", style="--"
+        )
+
         # Add legend with torque information
-        legend_text = f"M0: {m0_angle:.1f}° ({m0_torque:+.2f}A)\nM1: {m1_angle:.1f}° ({m1_torque:+.2f}A)"
+        legend_text = f"M0: {m0_angle:.1f}° ({m0_torque:+.2f}A) → J0: {self.joint_positions['J0']:.1f}°\nM1: {m1_angle:.1f}° ({m1_torque:+.2f}A) → J1: {self.joint_positions['J1']:.1f}°"
         self.ax.text(
             0.02,
             0.98,
@@ -351,6 +428,34 @@ class DialVisualizer:
             fontweight="bold",
             color=color,
             zorder=11,
+        )
+
+    def draw_joint_marker(self, angle, y_position, label, color, style="-"):
+        """Draw a vertical line marker for joint position"""
+        # Clamp angle to valid range
+        angle = max(-270, min(270, angle))
+
+        # Draw vertical line at joint position
+        self.ax.plot(
+            [angle, angle],
+            [-0.5, 2.5],
+            linestyle=style,
+            linewidth=2,
+            color=color,
+            alpha=0.6,
+            zorder=9,
+        )
+
+        # Add label below line
+        self.ax.text(
+            angle,
+            -0.75,
+            label,
+            ha="center",
+            fontsize=9,
+            style="italic",
+            color=color,
+            zorder=9,
         )
 
     def on_closing(self):
