@@ -16,14 +16,15 @@ int Motor_PP = 7;   // 电机极对数
 /// Enable/disable individual torque contributions
 struct DialConfig
 {
-  bool enable_detent = false;
+  bool enable_detent = true;
   bool enable_vibration = false;
   bool enable_bounds_restoration = true;
+  bool enable_oob_kick = true;
 
   // Detent mode parameters
   float detent_distance = 10 * 3.1415926 / 180.0; // 八分度，一分度45°
-  float detent_kp = 10.0;          // Proportional gain for detent spring effect
-  float detent_max_torque = 1.0;   // Maximum absolute torque magnitude (A)
+  float detent_kp = 10.0;                         // Proportional gain for detent spring effect
+  float detent_max_torque = 1.0;                  // Maximum absolute torque magnitude (A)
 
   // Bounds restoration parameters
   float bounds_min_angle = -3.1415926; // Minimum allowed angle (radians, ~-180°)
@@ -34,6 +35,10 @@ struct DialConfig
   // Vibration/debug parameters
   float vibration_amplitude = 1.0;                  // Amplitude of vibration test pulse (A)
   unsigned long vibration_pulse_interval_ms = 1000; // Interval between vibration pulses (ms)
+
+  // Out-of-bounds (OOB) kicking mode
+  float oob_kick_amplitude = 1.0;                // Amplitude of OOB kick (A)
+  unsigned long oob_kick_pulse_interval_ms = 40; // Interval between OOB kicks (ms)
 };
 
 // Dial class encapsulates per-motor state and behavior
@@ -45,19 +50,22 @@ public:
   unsigned long last_vibration_time_local;
   float last_torque;
   float last_angle;
+  unsigned long last_kick_time_local;
+  bool kick_state;
 
   Dial(int idx = 0, DialConfig *c = nullptr)
   {
     motor_index = idx;
     cfg = c;
     last_vibration_time_local = 0;
-    last_torque = 0.0;
     last_angle = 0.0;
   }
 
   void begin()
   {
     last_vibration_time_local = millis();
+    last_kick_time_local = 0;
+    kick_state = false;
   }
 
   /// @brief Get motor angle (supports both M0 and M1)
@@ -66,6 +74,7 @@ public:
   float get_motor_angle(int motor_index)
   {
     return (motor_index == 0) ? DFOC_M0_Angle() : DFOC_M1_Angle();
+    last_kick_time_local = millis();
   }
 
   float calculate_detent_torque(float current_angle)
@@ -78,8 +87,27 @@ public:
     else if (torque < -cfg->detent_max_torque)
       torque = -cfg->detent_max_torque;
     return torque;
+  }
+  // Out-of-bounds (OOB) kicking: click at configured frequency, direction towards corrective side
+  float calculate_oob_kick_torque(unsigned long now)
+  {
+    // Only generate kick when outside bounds
+    if (last_angle <= cfg->bounds_max_angle && last_angle >= cfg->bounds_min_angle)
+      return 0.0;
+    float sign = (last_angle > cfg->bounds_max_angle) ? -1.0f : 1.0f;
 
+    if (now - last_kick_time_local >= cfg->oob_kick_pulse_interval_ms)
+    {
+      last_kick_time_local = now;
+      // kick_state = !kick_state;
+      return sign * cfg->oob_kick_amplitude;
+    }
+
+    // if (!kick_state)
     return 0.0;
+
+    // Direction: if above max angle => restore (negative), if below min => positive
+    // return sign * cfg->oob_kick_amplitude;
   }
 
   float calculate_vibration_torque(unsigned long now)
@@ -123,6 +151,10 @@ public:
       total += calculate_vibration_torque(now);
     if (cfg->enable_bounds_restoration)
       total += calculate_bounds_torque(last_angle);
+
+    // Out-of-bounds kicking: additional pulsed corrective force when outside bounds
+    if (cfg->enable_oob_kick)
+      total += calculate_oob_kick_torque(now);
     last_torque = total;
     return total;
   }
@@ -151,7 +183,6 @@ DialConfig dial_config;
 Dial dial0(0, &dial_config);
 Dial dial1(1, &dial_config);
 
-
 // FPS stats
 #define DEBUG_PRINT_INTERVAL 20   // Print interval (ms) - can be changed without affecting FPS accuracy
 #define FPS_MEASURE_INTERVAL 1000 // FPS measurement window (ms) - independent of print interval
@@ -161,8 +192,6 @@ unsigned long frame_count = 0;
 float last_calculated_fps = 0.0;
 
 // ==================== TORQUE CONTRIBUTION FUNCTIONS ====================
-
-
 
 void setup()
 {
