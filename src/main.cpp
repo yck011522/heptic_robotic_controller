@@ -14,15 +14,15 @@ int Motor_PP = 7;   // 电机极对数
 
 // ==================== TORQUE CONTROL CONFIGURATION ====================
 /// Enable/disable individual torque contributions
-struct TorqueConfig
+struct DialConfig
 {
   bool enable_detent = false;
-  bool enable_vibration = true;
+  bool enable_vibration = false;
   bool enable_bounds_restoration = true;
 
   // Detent mode parameters
+  float detent_distance = 10 * 3.1415926 / 180.0; // 八分度，一分度45°
   float detent_kp = 10.0;          // Proportional gain for detent spring effect
-  float detent_deadband_pct = 0.0; // Deadband as percentage of detent spacing
   float detent_max_torque = 1.0;   // Maximum absolute torque magnitude (A)
 
   // Bounds restoration parameters
@@ -36,137 +36,133 @@ struct TorqueConfig
   unsigned long vibration_pulse_interval_ms = 1000; // Interval between vibration pulses (ms)
 };
 
-// Current configuration (easy to modify)
-TorqueConfig torque_config;
+// Dial class encapsulates per-motor state and behavior
+class Dial
+{
+public:
+  int motor_index;
+  DialConfig *cfg;
+  unsigned long last_vibration_time_local;
+  float last_torque;
+  float last_angle;
 
-// Detent mode state
-static float detent_distance = 10 * 3.1415926 / 180.0; // 八分度，一分度45°
-static float detent_deadband_angle_rad = 0;
+  Dial(int idx = 0, DialConfig *c = nullptr)
+  {
+    motor_index = idx;
+    cfg = c;
+    last_vibration_time_local = 0;
+    last_torque = 0.0;
+    last_angle = 0.0;
+  }
+
+  void begin()
+  {
+    last_vibration_time_local = millis();
+  }
+
+  /// @brief Get motor angle (supports both M0 and M1)
+  /// @param motor_index 0 for M0, 1 for M1
+  /// @return Current motor angle (radians)
+  float get_motor_angle(int motor_index)
+  {
+    return (motor_index == 0) ? DFOC_M0_Angle() : DFOC_M1_Angle();
+  }
+
+  float calculate_detent_torque(float current_angle)
+  {
+    float nearest_detent_angle = round(current_angle / cfg->detent_distance) * cfg->detent_distance;
+    float error = nearest_detent_angle - current_angle;
+    float torque = cfg->detent_kp * error;
+    if (torque > cfg->detent_max_torque)
+      torque = cfg->detent_max_torque;
+    else if (torque < -cfg->detent_max_torque)
+      torque = -cfg->detent_max_torque;
+    return torque;
+
+    return 0.0;
+  }
+
+  float calculate_vibration_torque(unsigned long now)
+  {
+    if (now - last_vibration_time_local >= cfg->vibration_pulse_interval_ms)
+    {
+      last_vibration_time_local = now;
+      return cfg->vibration_amplitude;
+    }
+    return 0.0;
+  }
+
+  float calculate_bounds_torque(float current_angle)
+  {
+    if (current_angle > cfg->bounds_max_angle)
+    {
+      float error = current_angle - cfg->bounds_max_angle;
+      float torque = -cfg->bounds_kp * error;
+      if (torque < -cfg->bounds_max_torque)
+        torque = -cfg->bounds_max_torque;
+      return torque;
+    }
+    else if (current_angle < cfg->bounds_min_angle)
+    {
+      float error = cfg->bounds_min_angle - current_angle;
+      float torque = cfg->bounds_kp * error;
+      if (torque > cfg->bounds_max_torque)
+        torque = cfg->bounds_max_torque;
+      return torque;
+    }
+    return 0.0;
+  }
+
+  float calculate_composite_torque(unsigned long now)
+  {
+    last_angle = get_motor_angle(motor_index);
+    float total = 0.0;
+    if (cfg->enable_detent)
+      total += calculate_detent_torque(last_angle);
+    if (cfg->enable_vibration)
+      total += calculate_vibration_torque(now);
+    if (cfg->enable_bounds_restoration)
+      total += calculate_bounds_torque(last_angle);
+    last_torque = total;
+    return total;
+  }
+
+  void apply_torque(float torque)
+  {
+    if (motor_index == 0)
+      DFOC_M0_setTorque_current(torque);
+    else
+      DFOC_M1_setTorque_current(torque);
+    last_torque = torque;
+  }
+
+  void calculate_and_apply_composite_torque()
+  {
+    unsigned long now = millis();
+    float t = calculate_composite_torque(now);
+    apply_torque(t);
+  }
+};
+
+// Current configuration (easy to modify)
+DialConfig dial_config;
+
+// Create per-dial instances (after class definition)
+Dial dial0(0, &dial_config);
+Dial dial1(1, &dial_config);
+
 
 // FPS stats
 #define DEBUG_PRINT_INTERVAL 20   // Print interval (ms) - can be changed without affecting FPS accuracy
 #define FPS_MEASURE_INTERVAL 1000 // FPS measurement window (ms) - independent of print interval
 unsigned long last_print_time = 0;
 unsigned long last_fps_time = 0;
-unsigned long last_vibration_time[2] = {0, 0};
 unsigned long frame_count = 0;
 float last_calculated_fps = 0.0;
 
 // ==================== TORQUE CONTRIBUTION FUNCTIONS ====================
 
-/// @brief Calculate detent/spring torque contribution
-/// Creates a spring-like force pulling toward nearest detent position
-/// @param current_angle Current motor angle (radians)
-/// @param config Torque configuration
-/// @return Torque command (A) to maintain detent position, clamped to [-max_torque, +max_torque]
-float calculate_detent_torque(float current_angle, const TorqueConfig &config)
-{
-  // Calculate nearest detent angle
-  float nearest_detent_angle = round(current_angle / detent_distance) * detent_distance;
-  float error = nearest_detent_angle - current_angle;
 
-  // Update deadband each time config changes (optional optimization)
-  detent_deadband_angle_rad = detent_distance * config.detent_deadband_pct;
-
-  // Apply spring force proportional to distance (with deadband)
-  if (abs(error) > detent_deadband_angle_rad)
-  {
-    float torque = config.detent_kp * error;
-    // Clamp torque to maximum absolute value
-    if (torque > config.detent_max_torque)
-      torque = config.detent_max_torque;
-    else if (torque < -config.detent_max_torque)
-      torque = -config.detent_max_torque;
-    return torque;
-  }
-  return 0.0;
-}
-
-/// @brief Calculate vibration/test pulse torque contribution
-/// Generates periodic torque pulses for haptic feedback or vibration testing
-/// @param current_time Current timestamp (ms)
-/// @param config Torque configuration
-/// @return Torque command (A) for vibration pulse
-float calculate_vibration_torque(int motor_index, unsigned long current_time, const TorqueConfig &config)
-{
-  // Generate pulse per-motor using separate timers
-  if (current_time - last_vibration_time[motor_index] >= config.vibration_pulse_interval_ms)
-  {
-    last_vibration_time[motor_index] = current_time;
-    return config.vibration_amplitude;
-  }
-  return 0.0;
-}
-
-/// @brief Calculate bounds restoration torque contribution
-/// Applies restoring force when motor angle exceeds allowed bounds
-/// @param current_angle Current motor angle (radians)
-/// @param config Torque configuration
-/// @return Torque command (A) to restore position within bounds, zero if within bounds
-float calculate_bounds_torque(float current_angle, const TorqueConfig &config)
-{
-  // Check if angle is outside bounds
-  if (current_angle > config.bounds_max_angle)
-  {
-    // Out of bounds on high side - apply negative (restoring) torque
-    float error = current_angle - config.bounds_max_angle;
-    float torque = -config.bounds_kp * error;
-    // Clamp to maximum magnitude
-    if (torque < -config.bounds_max_torque)
-      torque = -config.bounds_max_torque;
-    return torque;
-  }
-  else if (current_angle < config.bounds_min_angle)
-  {
-    // Out of bounds on low side - apply positive (restoring) torque
-    float error = config.bounds_min_angle - current_angle;
-    float torque = config.bounds_kp * error;
-    // Clamp to maximum magnitude
-    if (torque > config.bounds_max_torque)
-      torque = config.bounds_max_torque;
-    return torque;
-  }
-
-  // Within bounds - no restoring force needed
-  return 0.0;
-}
-
-/// @brief Composite torque calculator combining all enabled contributions
-/// @param current_angle Current motor angle (radians)
-/// @param current_time Current timestamp (ms)
-/// @param config Torque configuration
-/// @return Total composite torque command (A)
-float calculate_composite_torque(int motor_index, float current_angle, unsigned long current_time,
-                                 const TorqueConfig &config)
-{
-  float total_torque = 0.0;
-
-  // Sum all enabled torque contributions
-  if (config.enable_detent)
-  {
-    total_torque += calculate_detent_torque(current_angle, config);
-  }
-
-  if (config.enable_vibration)
-  {
-    total_torque += calculate_vibration_torque(motor_index, current_time, config);
-  }
-
-  if (config.enable_bounds_restoration)
-  {
-    total_torque += calculate_bounds_torque(current_angle, config);
-  }
-
-  return total_torque;
-}
-
-/// @brief Get motor angle (supports both M0 and M1)
-/// @param motor_index 0 for M0, 1 for M1
-/// @return Current motor angle (radians)
-float get_motor_angle(int motor_index)
-{
-  return (motor_index == 0) ? DFOC_M0_Angle() : DFOC_M1_Angle();
-}
 
 void setup()
 {
@@ -178,8 +174,9 @@ void setup()
   DFOC_M0_alignSensor(Motor_PP, Sensor_DIR);
   DFOC_M1_alignSensor(Motor_PP, Sensor_DIR);
 
-  // Initialize vibration timing
-  last_vibration_time[0] = last_vibration_time[1] = millis();
+  // Initialize per-dial state
+  dial0.begin();
+  dial1.begin();
 }
 
 void loop()
@@ -192,13 +189,9 @@ void loop()
   // Update sensors
   runFOC();
 
-  // Calculate composite torque from all sources (pass motor index for per-motor vibration)
-  float motor0_torque = calculate_composite_torque(0, get_motor_angle(0), current_time, torque_config);
-  float motor1_torque = calculate_composite_torque(1, get_motor_angle(1), current_time, torque_config);
-
-  // Apply torque to motor
-  DFOC_M0_setTorque_current(motor0_torque);
-  DFOC_M1_setTorque_current(motor1_torque);
+  // Calculate and apply composite torque per-dial
+  dial0.calculate_and_apply_composite_torque();
+  dial1.calculate_and_apply_composite_torque();
 
   // ==================== FPS CALCULATION ====================
   // Measure FPS over independent measurement window (decoupled from print interval)
@@ -219,13 +212,13 @@ void loop()
     Serial.print(" | FPS: ");
     Serial.print(last_calculated_fps, 1); // Display last calculated FPS (1 decimal place)
     Serial.print(" | M0 Torque: ");
-    Serial.print(motor0_torque, 2);
+    Serial.print(dial0.last_torque, 2);
     Serial.print(" A | M0 Angle: ");
-    Serial.print(get_motor_angle(0) * 180 / 3.1415926, 1);
+    Serial.print(dial0.last_angle * 180 / 3.1415926, 1);
     Serial.print(" deg | M1 Torque: ");
-    Serial.print(motor1_torque, 2);
+    Serial.print(dial1.last_torque, 2);
     Serial.print(" A | M1 Angle: ");
-    Serial.print(get_motor_angle(1) * 180 / 3.1415926, 1);
+    Serial.print(dial1.last_angle * 180 / 3.1415926, 1);
     Serial.println(" deg");
 
     last_print_time = current_time;
@@ -235,5 +228,5 @@ void loop()
   // Serial.print("Mechanical Angle: ");
   // Serial.print(get_motor_angle(0) * 180 / 3.1415926);
   // Serial.print(" deg, Torque: ");
-  // Serial.println(motor0_torque);
+  // Serial.println(dial0.last_torque);
 }
