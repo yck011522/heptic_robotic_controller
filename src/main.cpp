@@ -7,10 +7,16 @@
 //  Your support will be the funding for making videos and continuing open source, DengGe thanks everyone here
 
 #include "DengFOC.h"
+#include <stdint.h>
+#include <math.h>
 
 // ==================== MOTOR CONFIGURATION ====================
 int Sensor_DIR = 1; // Sensor direction, reverse this value if motor operation is abnormal
 int Motor_PP = 7;   // Motor pole pairs
+
+// ==================== ANGLE LIMITS ====================
+#define MAX_ANGLE_TURNS 20                           // Maximum angle in full rotations (decidegrees = turns * 36000)
+#define MAX_ANGLE_DECIDEG (MAX_ANGLE_TURNS * 36000) // ±720,000 decidegrees = ±20 rotations
 
 // ==================== TORQUE CONTROL CONFIGURATION ====================
 /// Enable/disable individual torque contributions
@@ -36,6 +42,7 @@ struct DialConfig
   // Tracking position parameters
   float tracking_position = 0.0;   // Target position to track towards (radians)
   float tracking_kp = 5.0;         // Proportional gain for position tracking
+  float tracking_kd = 0.1;         // Derivative gain for position tracking (damping)
   float tracking_max_torque = 2.0; // Maximum absolute torque magnitude (A)
 
   // Vibration/debug parameters
@@ -60,6 +67,7 @@ public:
   DialConfig *cfg;   // Pointer to configuration settings
   float last_torque; // Last calculated torque value (A)
   float last_angle;  // Last measured motor angle (radians)
+  float last_speed;  // Last measured motor speed (rad/s)
 
   Dial(int idx = 0, DialConfig *c = nullptr)
   {
@@ -87,6 +95,15 @@ public:
     last_kick_time_local = millis();
   }
 
+  /// @brief Get motor speed (supports both M0 and M1)
+  /// @param motor_index 0 for M0, 1 for M1
+  /// @return Current motor speed (rad/s)
+  float get_motor_speed(int motor_index)
+  {
+    // Retrieve speed from appropriate motor based on index
+    return (motor_index == 0) ? DFOC_M0_Velocity() : DFOC_M1_Velocity();
+  }
+
   float calculate_detent_torque(float current_angle)
   {
     // Find nearest detent position and apply spring-like restoration force
@@ -103,17 +120,22 @@ public:
     return torque;
   }
 
-  float calculate_tracking_torque(float current_angle)
+  float calculate_tracking_torque(float current_angle, float current_speed)
   {
-    // Apply corrective force to bring dial towards tracking_position target
     float error = cfg->tracking_position - current_angle;
+
+    // Spring
     float torque = cfg->tracking_kp * error;
 
-    // Clamp torque to maximum allowed magnitude
+    // Damping
+    torque -= cfg->tracking_kd * current_speed;
+
+    // Clamp
     if (torque > cfg->tracking_max_torque)
       torque = cfg->tracking_max_torque;
     else if (torque < -cfg->tracking_max_torque)
       torque = -cfg->tracking_max_torque;
+
     return torque;
   }
 
@@ -178,13 +200,14 @@ public:
   {
     // Combine all enabled torque effects into single control value
     last_angle = get_motor_angle(motor_index);
+    last_speed = get_motor_speed(motor_index);
     float total = 0.0;
 
     // Add individual torque contributions based on enabled features
     if (cfg->enable_detent)
       total += calculate_detent_torque(last_angle);
     if (cfg->enable_tracking)
-      total += calculate_tracking_torque(last_angle);
+      total += calculate_tracking_torque(last_angle, last_speed);
     if (cfg->enable_vibration)
       total += calculate_vibration_torque(now);
     if (cfg->enable_bounds_restoration)
@@ -220,11 +243,20 @@ public:
 // ==================== GLOBAL INSTANCES AND CONSTANTS ====================
 
 // Current configuration (easy to modify)
-DialConfig dial_config;
+DialConfig dial_config0;
+DialConfig dial_config1;
 
 // Create per-dial instances (after class definition)
-Dial dial0(0, &dial_config); // Motor 0 controller
-Dial dial1(1, &dial_config); // Motor 1 controller
+Dial dial0(0, &dial_config0); // Motor 0 controller
+Dial dial1(1, &dial_config1); // Motor 1 controller
+
+// Serial input buffer for receiving commands from Python
+const int SERIAL_BUFFER_SIZE = 128;
+char serial_buffer[SERIAL_BUFFER_SIZE];
+int serial_buffer_index = 0;
+
+// Protocol state
+uint32_t last_processed_seq = 0; // seq from last processed C command
 
 // FPS and timing statistics for performance monitoring
 #define DEBUG_PRINT_INTERVAL 20    // Print interval (ms) - can be changed without affecting FPS accuracy
@@ -239,7 +271,7 @@ float last_calculated_fps = 0.0;   // Last calculated FPS value
 void setup()
 {
   // Initialize serial communication for debugging
-  Serial.begin(115200);
+  Serial.begin(230400);
 
   // Initialize motor enable pin (GPIO 12)
   pinMode(12, OUTPUT);
@@ -253,6 +285,155 @@ void setup()
   // Initialize per-dial state and timers
   dial0.begin();
   dial1.begin();
+
+  // Initialize serial input buffer
+  serial_buffer_index = 0;
+}
+
+// ==================== SERIAL INPUT HANDLING ====================
+
+void parse_host_command(const char *line)
+{
+  // Protocol tokens: comma-separated
+  // First token: command letter (C/S/E)
+  // Second token: seq (uint32)
+
+  char copy[SERIAL_BUFFER_SIZE];
+  strncpy(copy, line, SERIAL_BUFFER_SIZE - 1);
+  copy[SERIAL_BUFFER_SIZE - 1] = '\0';
+
+  // Tokenize
+  const char *delim = ",";
+  char *token = strtok(copy, delim);
+  if (!token)
+    return;
+
+  // Command letter
+  char cmd = token[0];
+
+  // Seq
+  token = strtok(NULL, delim);
+  if (!token)
+    return;
+  uint32_t seq = (uint32_t)strtoul(token, NULL, 10);
+
+  if (cmd == 'C')
+  {
+    // Expect: C,seq,pos0,pos1,min0,max0,min1,max1
+    char *f[8];
+    int i = 0;
+    while (i < 8 && (f[i] = strtok(NULL, delim)) != NULL)
+      i++;
+
+    if (i >= 2)
+    {
+      // pos0,pos1 required
+      long pos0 = atol(f[0]);
+      long pos1 = atol(f[1]);
+
+      // Convert decidegrees -> radians: rad = decideg * pi / 1800.0
+      float pos0_rad = (float)pos0 * 3.1415926f / 1800.0f;
+      float pos1_rad = (float)pos1 * 3.1415926f / 1800.0f;
+
+      dial_config0.tracking_position = pos0_rad;
+      dial_config1.tracking_position = pos1_rad;
+
+      if (i >= 4)
+      {
+        long min0 = atol(f[2]);
+        long max0 = atol(f[3]);
+        dial_config0.bounds_min_angle = (float)min0 * 3.1415926f / 1800.0f;
+        dial_config0.bounds_max_angle = (float)max0 * 3.1415926f / 1800.0f;
+      }
+      if (i >= 6)
+      {
+        long min1 = atol(f[4]);
+        long max1 = atol(f[5]);
+        dial_config1.bounds_min_angle = (float)min1 * 3.1415926f / 1800.0f;
+        dial_config1.bounds_max_angle = (float)max1 * 3.1415926f / 1800.0f;
+      }
+
+      last_processed_seq = seq;
+    }
+  }
+  else if (cmd == 'S')
+  {
+    // Expect: S,seq,param,value
+    char *param = strtok(NULL, delim);
+    char *valstr = strtok(NULL, delim);
+    if (param && valstr)
+    {
+      long v = atol(valstr);
+      // Interpret parameter numeric value as fixed-point with 1000 scale
+      float fval = (float)v / 1000.0f;
+
+      // Handle common parameter names
+      if (strcmp(param, "tracking_kp_0") == 0)
+        dial_config0.tracking_kp = fval;
+      else if (strcmp(param, "tracking_kp_1") == 0)
+        dial_config1.tracking_kp = fval;
+      else if (strcmp(param, "tracking_kd_0") == 0)
+        dial_config0.tracking_kd = fval;
+      else if (strcmp(param, "tracking_kd_1") == 0)
+        dial_config1.tracking_kd = fval;
+      else if (strcmp(param, "detent_kp_0") == 0)
+        dial_config0.detent_kp = fval;
+      else if (strcmp(param, "detent_kp_1") == 0)
+        dial_config1.detent_kp = fval;
+      else if (strcmp(param, "bounds_kp_0") == 0)
+        dial_config0.bounds_kp = fval;
+      else if (strcmp(param, "bounds_kp_1") == 0)
+        dial_config1.bounds_kp = fval;
+      else if (strcmp(param, "detent_distance_0") == 0)
+        dial_config0.detent_distance = fval * 3.1415926f / 1800.0f; // assume value in decideg -> convert to rad
+      else if (strcmp(param, "detent_distance_1") == 0)
+        dial_config1.detent_distance = fval * 3.1415926f / 1800.0f;
+      // Unknown parameters are ignored
+    }
+  }
+  else if (cmd == 'E')
+  {
+    // Echo test: send R,seq\n
+    Serial.print("R,");
+    Serial.println(seq);
+  }
+}
+
+void process_serial_input()
+{
+  // Non-blocking serial input processing
+  // Reads available bytes and buffers them until newline is received
+  // Format: "M0C:value,M1C:value\n"
+
+  while (Serial.available() > 0)
+  {
+    char inByte = Serial.read();
+
+    // Check for end-of-message (newline)
+    if (inByte == '\n')
+    {
+      // Process the complete message
+      serial_buffer[serial_buffer_index] = '\0'; // Null terminate
+      parse_host_command(serial_buffer);
+      serial_buffer_index = 0; // Reset buffer for next message
+    }
+    else if (inByte == '\r')
+    {
+      // Ignore carriage return
+      continue;
+    }
+    else if (serial_buffer_index < SERIAL_BUFFER_SIZE - 1)
+    {
+      // Add character to buffer
+      serial_buffer[serial_buffer_index++] = inByte;
+    }
+    else
+    {
+      // Buffer overflow protection: reset buffer
+      serial_buffer_index = 0;
+      Serial.println("ERROR: Serial buffer overflow");
+    }
+  }
 }
 
 // ==================== MAIN CONTROL LOOP ====================
@@ -261,6 +442,10 @@ void loop()
 {
   unsigned long current_time = millis();
   frame_count++;
+
+  // ==================== SERIAL INPUT ====================
+  // Non-blocking read of joint position commands from Python
+  process_serial_input();
 
   // ==================== FOC & MOTOR CONTROL ====================
   // Run field-oriented control updates and read sensor feedback
@@ -279,26 +464,66 @@ void loop()
     last_fps_time = current_time;
   }
 
-  // ==================== DATA TRANSMISSION ====================
-  // Send structured telemetry data at regular intervals for Python script processing
-  // Format: Field labels with colon separators, comma-delimited values
-  // Example: T:12345,F:60.5,M0T:0.5,M0A:45.2,M1T:0.3,M1A:-90.1
+  // ==================== DATA TRANSMISSION (DengFOC V4 protocol) ====================
+  // Transmit at configured debug interval: T,seq,ang0,ang1,tor0,tor1\n
   if (current_time - last_print_time >= DEBUG_PRINT_INTERVAL)
   {
-    // Transmit data in structured key:value format separated by commas
-    Serial.print("T:");
-    Serial.print(current_time);
-    Serial.print(",F:");
-    Serial.print(last_calculated_fps, 1); // FPS with 1 decimal place
-    Serial.print(",M0T:");
-    Serial.print(dial0.last_torque, 2); // Motor 0 torque with 2 decimal places
-    Serial.print(",M0A:");
-    Serial.print(dial0.last_angle * 180 / 3.1415926, 1); // Motor 0 angle in degrees with 1 decimal
-    Serial.print(",M1T:");
-    Serial.print(dial1.last_torque, 2); // Motor 1 torque with 2 decimal places
-    Serial.print(",M1A:");
-    Serial.print(dial1.last_angle * 180 / 3.1415926, 1); // Motor 1 angle in degrees with 1 decimal
-    Serial.println();                                    // End of message with newline for frame synchronization
+    // Angle: radians -> decidegrees (0.1 deg per unit)
+    float ang0_deg = dial0.last_angle * 180.0f / 3.1415926f;
+    float ang1_deg = dial1.last_angle * 180.0f / 3.1415926f;
+    float ang0_decideg_f = ang0_deg * 10.0f;
+    float ang1_decideg_f = ang1_deg * 10.0f;
+
+    long ang0_decideg = (long)(ang0_decideg_f > 0 ? ang0_decideg_f + 0.5f : ang0_decideg_f - 0.5f);
+    long ang1_decideg = (long)(ang1_decideg_f > 0 ? ang1_decideg_f + 0.5f : ang1_decideg_f - 0.5f);
+
+    // Clamp to ±MAX_ANGLE_DECIDEG
+    if (ang0_decideg > MAX_ANGLE_DECIDEG)
+      ang0_decideg = MAX_ANGLE_DECIDEG;
+    else if (ang0_decideg < -MAX_ANGLE_DECIDEG)
+      ang0_decideg = -MAX_ANGLE_DECIDEG;
+    if (ang1_decideg > MAX_ANGLE_DECIDEG)
+      ang1_decideg = MAX_ANGLE_DECIDEG;
+    else if (ang1_decideg < -MAX_ANGLE_DECIDEG)
+      ang1_decideg = -MAX_ANGLE_DECIDEG;
+
+    // Torque: amps -> milliamps
+    float tor0_ma_f = dial0.last_torque * 1000.0f;
+    float tor1_ma_f = dial1.last_torque * 1000.0f;
+    long tor0_ma = (long)(tor0_ma_f > 0 ? tor0_ma_f + 0.5f : tor0_ma_f - 0.5f);
+    long tor1_ma = (long)(tor1_ma_f > 0 ? tor1_ma_f + 0.5f : tor1_ma_f - 0.5f);
+
+    // Clamp torque to ±10000 mA
+    if (tor0_ma > 10000)
+      tor0_ma = 10000;
+    else if (tor0_ma < -10000)
+      tor0_ma = -10000;
+    if (tor1_ma > 10000)
+      tor1_ma = 10000;
+    else if (tor1_ma < -10000)
+      tor1_ma = -10000;
+
+    // Compute FPS averaged value (int) and clamp to allowed range
+    long fps_val = (long)(last_calculated_fps + 0.5f);
+    if (fps_val < 0)
+      fps_val = 0;
+    if (fps_val > 2000)
+      fps_val = 2000;
+
+    // Emit: T,seq,ang0,ang1,tor0,tor1,fps\n
+    Serial.print("T,");
+    Serial.print(last_processed_seq);
+    Serial.print(",");
+    Serial.print(ang0_decideg);
+    Serial.print(",");
+    Serial.print(ang1_decideg);
+    Serial.print(",");
+    Serial.print(tor0_ma);
+    Serial.print(",");
+    Serial.print(tor1_ma);
+    Serial.print(",");
+    Serial.print(fps_val);
+    Serial.println();
 
     last_print_time = current_time;
   }
