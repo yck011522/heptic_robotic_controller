@@ -66,6 +66,7 @@ void DFOC_M0_setTorque_current(float Target);
 void DFOC_M1_setTorque_current(float Target);
 
 // 运行FOC循环
-void runFOC();
+void runFOC_M0();
+void runFOC_M1();
 
 #endif

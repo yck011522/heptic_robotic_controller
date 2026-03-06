@@ -723,15 +723,24 @@ void DFOC_M1_setTorque_current(float Target)
 }
 
 // ==================== SENSOR UPDATE (MAIN LOOP) ====================
-/// @brief Update all sensor data for both motors
+/// @brief Update sensor data for M0
 /// MUST be called every control loop iteration to refresh cached sensor values
 /// Updates encoder positions/velocities and phase currents for both motors
 /// @note Non-blocking, completes in ~5-10ms depending on I2C speed
 /// @note Single runFOC() call provides fresh data for all subsequent getter functions
-void runFOC()
+void runFOC_M0()
 {
   S0.Sensor_update();
-  S1.Sensor_update();
   CS_M0.getPhaseCurrents();
+}
+
+/// @brief Update sensor data for M1
+/// MUST be called every control loop iteration to refresh cached sensor values
+/// Updates encoder positions/velocities and phase currents for both motors
+/// @note Non-blocking, completes in ~5-10ms depending on I2C speed
+/// @note Single runFOC() call provides fresh data for all subsequent getter functions
+void runFOC_M1()
+{
+  S1.Sensor_update();
   CS_M1.getPhaseCurrents();
 }
