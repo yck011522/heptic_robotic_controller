@@ -4,7 +4,6 @@
 // 仅在DengFOC官方硬件上测试过，欢迎硬件购买/支持作者，淘宝搜索店铺：灯哥开源
 // 你的支持将是接下来做视频和持续开源的经费，灯哥在这里先谢谢大家了
 
-
 // Dual-knob FOC library -  Based on the single-knob library
 
 #ifndef DENGFOC_H
@@ -68,5 +67,6 @@ void DFOC_M1_setTorque_current(float Target);
 // 运行FOC循环
 void runFOC_M0();
 void runFOC_M1();
+void runFOC_both();
 
 #endif

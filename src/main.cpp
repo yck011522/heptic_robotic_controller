@@ -336,9 +336,8 @@ void loop()
   process_serial_input();
 
   // ==================== FOC & MOTOR CONTROL ====================
-  // Run field-oriented control updates and read sensor feedback
-  runFOC_M0();
-  runFOC_M1();
+  // Read both sensors in parallel (S0 on Core 1, S1 on Core 0)
+  runFOC_both();
 
   // Calculate all enabled torque effects and apply to motors
   dial0.calculate_and_apply_composite_torque();
