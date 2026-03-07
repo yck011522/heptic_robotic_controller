@@ -1,3 +1,9 @@
+# dial_test_2_echo_test.py
+# Measures round-trip time (RTT) of the E (echo) command independently
+# from telemetry. Sends paired C + E commands at 50 Hz and measures how
+# quickly the board returns the E reply. Also collects controller FPS
+# from T telemetry. Useful for isolating serial latency from FOC load.
+
 import serial
 import time
 import threading
@@ -6,7 +12,7 @@ import statistics
 # =========================
 # Configuration
 # =========================
-PORT = "COM5"
+PORT = "COM9"
 BAUD = 230400
 TEST_DURATION = 60.0
 RATE_HZ = 50.0
@@ -51,7 +57,7 @@ def handle_line(line):
     now = time.perf_counter()
 
     # Echo reply
-    if line.startswith("R,"):
+    if line.startswith("E,"):
         parts = line.split(",")
         if len(parts) < 2:
             return
@@ -68,10 +74,10 @@ def handle_line(line):
     # Telemetry reply
     elif line.startswith("T,"):
         parts = line.split(",")
-        if len(parts) < 7:
+        if len(parts) < 9:
             return
         try:
-            fps = int(parts[6])
+            fps = int(parts[8])
         except:
             return
 

@@ -1,3 +1,9 @@
+# dial_test_3_sine_tracking.py
+# Sends a slow sine-wave position trajectory to both motors at 50 Hz
+# and monitors controller FPS and host-side loop timing jitter.
+# Verifies that the control loop remains stable under continuous
+# position updates over a 20-second window.
+
 import serial
 import time
 import threading
@@ -7,7 +13,7 @@ import statistics
 # =========================
 # Configuration
 # =========================
-PORT = "COM5"
+PORT = "COM9"
 BAUD = 230400
 TEST_DURATION = 20.0
 CONTROL_HZ = 50.0
@@ -48,9 +54,9 @@ def reader_thread():
 def handle_line(line):
     if line.startswith("T,"):
         parts = line.split(",")
-        if len(parts) >= 7:
+        if len(parts) >= 9:
             try:
-                fps = int(parts[6])
+                fps = int(parts[8])
                 with lock:
                     fps_values.append(fps)
             except:

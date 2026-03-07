@@ -1,9 +1,15 @@
+# dial_test_1_single_rtt.py
+# Measures round-trip time (RTT) of the C (control) command by sending
+# position commands at 100 Hz and timing how long until the matching
+# seq appears in the T (telemetry) response. Reports mean, P50, P95,
+# P99, max RTT and average controller FPS over a 60-second window.
+
 import serial
 import time
 import threading
 import statistics
 
-PORT = "COM5"
+PORT = "COM9"
 BAUD = 230400
 TEST_DURATION = 60.0
 SEND_HZ = 100.0
@@ -38,11 +44,11 @@ def handle_line(line):
     if not line.startswith("T,"):
         return
     parts = line.split(",")
-    if len(parts) < 7:
+    if len(parts) < 9:
         return
     try:
-        seq = int(parts[1])
-        fps = int(parts[6])
+        seq = int(parts[3])
+        fps = int(parts[8])
     except:
         return
 

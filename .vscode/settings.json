@@ -2,5 +2,7 @@
     "chat.tools.terminal.autoApprove": {
         "platformio": true,
         "C:\\Users\\leungp\\.platformio\\penv\\Scripts\\platformio.exe": true
-    }
+    },
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda"
 }
