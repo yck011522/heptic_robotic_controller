@@ -16,8 +16,8 @@
 #define FW_VERSION "0.2.0"
 
 // ==================== MOTOR CONFIGURATION ====================
-int Sensor_DIR = 1; // Sensor direction, reverse this value if motor operation is abnormal
-int Motor_PP = 7;   // Motor pole pairs
+int sensor_dir = 1;       // Sensor direction, reverse this value if motor operation is abnormal
+int motor_pole_pairs = 7; // Motor pole pairs
 
 // ==================== ANGLE LIMITS ====================
 #define MAX_ANGLE_TURNS 30                          // Maximum angle in full rotations (decidegrees = turns * 36000)
@@ -27,7 +27,7 @@ int Motor_PP = 7;   // Motor pole pairs
 // Configuration now in Dial.h
 
 // ==================== MOTOR IDENTITY (NVS) ====================
-Preferences prefs;
+Preferences nvs_prefs;
 uint8_t motor_id_0 = 0; // Persistent identity for motor 0, 0 = unconfigured
 uint8_t motor_id_1 = 0; // Persistent identity for motor 1, 0 = unconfigured
 
@@ -41,7 +41,7 @@ DialConfig dial_config1;
 Dial dial0(0, &dial_config0); // Motor 0 controller
 Dial dial1(1, &dial_config1); // Motor 1 controller
 
-// Serial input buffer for receiving commands from Python
+// Serial input buffer for receiving commands from host
 const int SERIAL_BUFFER_SIZE = 128;
 char serial_buffer[SERIAL_BUFFER_SIZE];
 int serial_buffer_index = 0;
@@ -50,12 +50,12 @@ int serial_buffer_index = 0;
 uint32_t last_processed_seq = 0; // seq from last processed C command
 
 // FPS and timing statistics for performance monitoring
-#define DEBUG_PRINT_INTERVAL 20    // Print interval (ms) - can be changed without affecting FPS accuracy
-#define FPS_MEASURE_INTERVAL 1000  // FPS measurement window (ms) - independent of print interval
-unsigned long last_print_time = 0; // Last time debug info was printed
-unsigned long last_fps_time = 0;   // Last time FPS was calculated
-unsigned long frame_count = 0;     // Number of loop cycles in current FPS window
-float last_calculated_fps = 0.0;   // Last calculated FPS value
+unsigned long telemetry_interval_ms = 20; // Telemetry reporting interval (ms) - modifiable via S command
+#define FPS_MEASURE_INTERVAL 1000         // FPS measurement window (ms) - independent of telemetry interval
+unsigned long last_telemetry_time = 0;    // Last time telemetry was sent
+unsigned long last_fps_time = 0;          // Last time FPS was calculated
+unsigned long frame_count = 0;            // Number of loop cycles in current FPS window
+float last_calculated_fps = 0.0;          // Last calculated FPS value
 
 // ==================== INITIALIZATION ====================
 
@@ -65,19 +65,19 @@ void setup()
   Serial.begin(230400);
 
   // Load persistent motor identities from NVS
-  prefs.begin("robot", true); // read-only
-  motor_id_0 = prefs.getUChar("motor_id_0", 0);
-  motor_id_1 = prefs.getUChar("motor_id_1", 0);
-  prefs.end();
+  nvs_prefs.begin("robot", true); // read-only
+  motor_id_0 = nvs_prefs.getUChar("motor_id_0", 0);
+  motor_id_1 = nvs_prefs.getUChar("motor_id_1", 0);
+  nvs_prefs.end();
 
   // Initialize motor enable pin (GPIO 12)
   pinMode(12, OUTPUT);
   digitalWrite(12, HIGH); // Motor Enable, must be placed before motor calibration
 
   // Configure motor driver voltage and align Hall sensors
-  DFOC_Vbus(12);                             // Set driver power supply voltage to 12V
-  DFOC_M0_alignSensor(Motor_PP, Sensor_DIR); // Calibrate motor 0 sensor
-  DFOC_M1_alignSensor(Motor_PP, Sensor_DIR); // Calibrate motor 1 sensor
+  DFOC_Vbus(12);                                     // Set driver power supply voltage to 12V
+  DFOC_M0_alignSensor(motor_pole_pairs, sensor_dir); // Calibrate motor 0 sensor
+  DFOC_M1_alignSensor(motor_pole_pairs, sensor_dir); // Calibrate motor 1 sensor
 
   // Initialize per-dial state and timers
   dial0.begin();
@@ -193,6 +193,8 @@ void parse_host_command(const char *line)
         dial_config0.oob_kick_amplitude = fval;
       else if (strcmp(param, "oob_kick_amplitude_1") == 0)
         dial_config1.oob_kick_amplitude = fval;
+      else if (strcmp(param, "telemetry_interval") == 0)
+        telemetry_interval_ms = (unsigned long)v; // value in ms (no 1000x scaling)
       // Unknown parameters are ignored
 
       // Acknowledge: S,seq\n
@@ -210,10 +212,10 @@ void parse_host_command(const char *line)
     {
       motor_id_0 = (uint8_t)atoi(id0str);
       motor_id_1 = (uint8_t)atoi(id1str);
-      prefs.begin("robot", false); // read-write
-      prefs.putUChar("motor_id_0", motor_id_0);
-      prefs.putUChar("motor_id_1", motor_id_1);
-      prefs.end();
+      nvs_prefs.begin("robot", false); // read-write
+      nvs_prefs.putUChar("motor_id_0", motor_id_0);
+      nvs_prefs.putUChar("motor_id_1", motor_id_1);
+      nvs_prefs.end();
     }
     // Respond with current motor identities
     Serial.print("I,");
@@ -305,9 +307,9 @@ void loop()
     last_fps_time = current_time;
   }
 
-  // ==================== DATA TRANSMISSION (DengFOC V4 protocol) ====================
-  // Transmit at configured debug interval: T,seq,ang0,ang1,tor0,tor1\n
-  if (current_time - last_print_time >= DEBUG_PRINT_INTERVAL)
+  // ==================== TELEMETRY TRANSMISSION (DengFOC V4 protocol) ====================
+  // Transmit at configured telemetry interval: T,seq,ang0,ang1,tor0,tor1\n
+  if (current_time - last_telemetry_time >= telemetry_interval_ms)
   {
     // Angle: radians -> decidegrees (0.1 deg per unit)
     float ang0_deg = dial0.last_angle * 180.0f / 3.1415926f;
@@ -370,6 +372,6 @@ void loop()
     Serial.print(fps_val);
     Serial.println();
 
-    last_print_time = current_time;
+    last_telemetry_time = current_time;
   }
 }
