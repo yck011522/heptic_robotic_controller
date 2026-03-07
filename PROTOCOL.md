@@ -126,6 +126,26 @@ Most parameter values use **×1000 fixed-point** encoding: send `5000` to set a 
 | `vibration_amplitude_1` | ×1000             | Vibration pulse amplitude (A), motor 1 | 1.0 |
 | `oob_kick_amplitude_0`  | ×1000             | Out-of-bounds kick amplitude (A), motor 0 | 1.0 |
 | `oob_kick_amplitude_1`  | ×1000             | Out-of-bounds kick amplitude (A), motor 1 | 1.0 |
+| `tracking_max_torque_0` | ×1000             | Max tracking torque (A), motor 0 | 2.0 |
+| `tracking_max_torque_1` | ×1000             | Max tracking torque (A), motor 1 | 2.0 |
+| `bounds_max_torque_0`   | ×1000             | Max bounds restoration torque (A), motor 0 | 3.0 |
+| `bounds_max_torque_1`   | ×1000             | Max bounds restoration torque (A), motor 1 | 3.0 |
+| `detent_max_torque_0`   | ×1000             | Max detent torque (A), motor 0 | 1.0 |
+| `detent_max_torque_1`   | ×1000             | Max detent torque (A), motor 1 | 1.0 |
+| `vibration_pulse_interval_ms_0` | Milliseconds (raw, no ×1000) | Vibration pulse interval, motor 0 | 1000 ms |
+| `vibration_pulse_interval_ms_1` | Milliseconds (raw, no ×1000) | Vibration pulse interval, motor 1 | 1000 ms |
+| `oob_kick_pulse_interval_ms_0`  | Milliseconds (raw, no ×1000) | OOB kick pulse interval, motor 0 | 40 ms |
+| `oob_kick_pulse_interval_ms_1`  | Milliseconds (raw, no ×1000) | OOB kick pulse interval, motor 1 | 40 ms |
+| `enable_tracking_0`     | 0 or 1            | Enable position tracking, motor 0 | 1 (enabled) |
+| `enable_tracking_1`     | 0 or 1            | Enable position tracking, motor 1 | 1 (enabled) |
+| `enable_detent_0`       | 0 or 1            | Enable detent mode, motor 0 | 0 (disabled) |
+| `enable_detent_1`       | 0 or 1            | Enable detent mode, motor 1 | 0 (disabled) |
+| `enable_bounds_restoration_0` | 0 or 1      | Enable bounds restoration, motor 0 | 1 (enabled) |
+| `enable_bounds_restoration_1` | 0 or 1      | Enable bounds restoration, motor 1 | 1 (enabled) |
+| `enable_oob_kick_0`     | 0 or 1            | Enable OOB kick, motor 0 | 1 (enabled) |
+| `enable_oob_kick_1`     | 0 or 1            | Enable OOB kick, motor 1 | 1 (enabled) |
+| `enable_vibration_0`    | 0 or 1            | Enable vibration mode, motor 0 | 0 (disabled) |
+| `enable_vibration_1`    | 0 or 1            | Enable vibration mode, motor 1 | 0 (disabled) |
 | `telemetry_interval`    | Milliseconds (raw, no ×1000) | Telemetry reporting period | 20 ms (50 Hz) |
 
 Unknown parameter names are silently ignored.
@@ -295,10 +315,10 @@ The controller computes a composite torque from multiple independently-enabled e
 
 | Mode | Default | Description |
 |------|---------|-------------|
-| **Tracking** | Enabled | PD controller driving the motor towards `tracking_position` (set by `C` command). Gains: `tracking_kp`, `tracking_kd`. |
-| **Bounds restoration** | Enabled | Strong proportional spring when angle exceeds `bounds_min_angle` / `bounds_max_angle` (set by `C` command). Gain: `bounds_kp`. |
-| **OOB kick** | Enabled | Pulsed corrective force (40 ms interval) when outside bounds. Amplitude: `oob_kick_amplitude`. |
-| **Detent** | Disabled | Spring-like snap to evenly-spaced detent positions. Spacing: `detent_distance`. Gain: `detent_kp`. |
-| **Vibration** | Disabled | Periodic pulse (1 Hz) for testing. Amplitude: `vibration_amplitude`. |
+| **Tracking** | Enabled | PD controller driving the motor towards `tracking_position` (set by `C` command). Gains: `tracking_kp`, `tracking_kd`. Max torque: `tracking_max_torque`. |
+| **Bounds restoration** | Enabled | Strong proportional spring when angle exceeds `bounds_min_angle` / `bounds_max_angle` (set by `C` command). Gain: `bounds_kp`. Max torque: `bounds_max_torque`. |
+| **OOB kick** | Enabled | Pulsed corrective force when outside bounds. Amplitude: `oob_kick_amplitude`. Interval: `oob_kick_pulse_interval_ms`. |
+| **Detent** | Disabled | Spring-like snap to evenly-spaced detent positions. Spacing: `detent_distance`. Gain: `detent_kp`. Max torque: `detent_max_torque`. |
+| **Vibration** | Disabled | Periodic pulse for testing. Amplitude: `vibration_amplitude`. Interval: `vibration_pulse_interval_ms`. |
 
-> **Note:** Mode enable/disable flags (`enable_tracking`, `enable_detent`, etc.) are currently compile-time defaults in `Dial.h` and are not settable over the serial protocol. The `S` command can adjust their *parameters* (gains, amplitudes) but cannot toggle modes on/off at runtime.
+All modes can be enabled or disabled at runtime via the `S` command using the `enable_<mode>_<motor>` parameters (e.g., `enable_detent_0`). Send `0` to disable, `1` to enable. Modes are not mutually exclusive — their torques are summed.

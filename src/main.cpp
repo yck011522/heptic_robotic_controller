@@ -196,6 +196,49 @@ void parse_host_command(const char *line)
         dial_config0.oob_kick_amplitude = fval;
       else if (strcmp(param, "oob_kick_amplitude_1") == 0)
         dial_config1.oob_kick_amplitude = fval;
+      // Max torque limits
+      else if (strcmp(param, "tracking_max_torque_0") == 0)
+        dial_config0.tracking_max_torque = fval;
+      else if (strcmp(param, "tracking_max_torque_1") == 0)
+        dial_config1.tracking_max_torque = fval;
+      else if (strcmp(param, "bounds_max_torque_0") == 0)
+        dial_config0.bounds_max_torque = fval;
+      else if (strcmp(param, "bounds_max_torque_1") == 0)
+        dial_config1.bounds_max_torque = fval;
+      else if (strcmp(param, "detent_max_torque_0") == 0)
+        dial_config0.detent_max_torque = fval;
+      else if (strcmp(param, "detent_max_torque_1") == 0)
+        dial_config1.detent_max_torque = fval;
+      // Timing intervals (raw ms, no 1000x scaling)
+      else if (strcmp(param, "vibration_pulse_interval_ms_0") == 0)
+        dial_config0.vibration_pulse_interval_ms = (unsigned long)v;
+      else if (strcmp(param, "vibration_pulse_interval_ms_1") == 0)
+        dial_config1.vibration_pulse_interval_ms = (unsigned long)v;
+      else if (strcmp(param, "oob_kick_pulse_interval_ms_0") == 0)
+        dial_config0.oob_kick_pulse_interval_ms = (unsigned long)v;
+      else if (strcmp(param, "oob_kick_pulse_interval_ms_1") == 0)
+        dial_config1.oob_kick_pulse_interval_ms = (unsigned long)v;
+      // Mode enable/disable flags (value: 0 = disable, non-zero = enable)
+      else if (strcmp(param, "enable_tracking_0") == 0)
+        dial_config0.enable_tracking = (v != 0);
+      else if (strcmp(param, "enable_tracking_1") == 0)
+        dial_config1.enable_tracking = (v != 0);
+      else if (strcmp(param, "enable_detent_0") == 0)
+        dial_config0.enable_detent = (v != 0);
+      else if (strcmp(param, "enable_detent_1") == 0)
+        dial_config1.enable_detent = (v != 0);
+      else if (strcmp(param, "enable_bounds_restoration_0") == 0)
+        dial_config0.enable_bounds_restoration = (v != 0);
+      else if (strcmp(param, "enable_bounds_restoration_1") == 0)
+        dial_config1.enable_bounds_restoration = (v != 0);
+      else if (strcmp(param, "enable_oob_kick_0") == 0)
+        dial_config0.enable_oob_kick = (v != 0);
+      else if (strcmp(param, "enable_oob_kick_1") == 0)
+        dial_config1.enable_oob_kick = (v != 0);
+      else if (strcmp(param, "enable_vibration_0") == 0)
+        dial_config0.enable_vibration = (v != 0);
+      else if (strcmp(param, "enable_vibration_1") == 0)
+        dial_config1.enable_vibration = (v != 0);
       else if (strcmp(param, "telemetry_interval") == 0)
         telemetry_interval_ms = (unsigned long)v; // value in ms (no 1000x scaling)
       // Unknown parameters are ignored
