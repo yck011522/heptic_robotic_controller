@@ -49,13 +49,15 @@ int serial_buffer_index = 0;
 // Protocol state
 uint32_t last_processed_seq = 0; // seq from last processed C command
 
-// FPS and timing statistics for performance monitoring
+// Telemetry and FOC rate measurement
 unsigned long telemetry_interval_ms = 20; // Telemetry reporting interval (ms) - modifiable via S command
-#define FPS_MEASURE_INTERVAL 1000         // FPS measurement window (ms) - independent of telemetry interval
 unsigned long last_telemetry_time = 0;    // Last time telemetry was sent
-unsigned long last_fps_time = 0;          // Last time FPS was calculated
-unsigned long frame_count = 0;            // Number of loop cycles in current FPS window
-float last_calculated_fps = 0.0;          // Last calculated FPS value
+
+// FOC Rate measurement
+#define FOC_RATE_MEASURE_INTERVAL 200 // FOC rate measurement window (ms)
+unsigned long last_foc_rate_time = 0; // Last time FOC rate was calculated
+unsigned long foc_cycle_count = 0;    // Number of FOC cycles in current measurement window
+float last_foc_rate_hz = 0.0;         // Last calculated FOC rate (Hz)
 
 // ==================== INITIALIZATION ====================
 
@@ -283,10 +285,10 @@ void process_serial_input()
 void loop()
 {
   unsigned long current_time = millis();
-  frame_count++;
+  foc_cycle_count++;
 
   // ==================== SERIAL INPUT ====================
-  // Non-blocking read of joint position commands from Python
+  // Non-blocking read of joint position commands from host
   process_serial_input();
 
   // ==================== FOC & MOTOR CONTROL ====================
@@ -298,13 +300,13 @@ void loop()
   dial0.calculate_and_apply_composite_torque();
   dial1.calculate_and_apply_composite_torque();
 
-  // ==================== PERFORMANCE METRICS ====================
-  // Measure FPS over independent measurement window (decoupled from print interval)
-  if (current_time - last_fps_time >= FPS_MEASURE_INTERVAL)
+  // ==================== FOC RATE MEASUREMENT ====================
+  // Measure FOC rate over independent measurement window (decoupled from telemetry interval)
+  if (current_time - last_foc_rate_time >= FOC_RATE_MEASURE_INTERVAL)
   {
-    last_calculated_fps = (float)frame_count * 1000.0 / (current_time - last_fps_time);
-    frame_count = 0;
-    last_fps_time = current_time;
+    last_foc_rate_hz = (float)foc_cycle_count * 1000.0 / (current_time - last_foc_rate_time);
+    foc_cycle_count = 0;
+    last_foc_rate_time = current_time;
   }
 
   // ==================== TELEMETRY TRANSMISSION (DengFOC V4 protocol) ====================
@@ -346,14 +348,14 @@ void loop()
     else if (tor1_ma < -10000)
       tor1_ma = -10000;
 
-    // Compute FPS averaged value (int) and clamp to allowed range
-    long fps_val = (long)(last_calculated_fps + 0.5f);
-    if (fps_val < 0)
-      fps_val = 0;
-    if (fps_val > 2000)
-      fps_val = 2000;
+    // Compute FOC rate (int Hz) and clamp to allowed range
+    long foc_rate_hz = (long)(last_foc_rate_hz + 0.5f);
+    if (foc_rate_hz < 0)
+      foc_rate_hz = 0;
+    if (foc_rate_hz > 2000)
+      foc_rate_hz = 2000;
 
-    // Emit: T,motor_id_0,motor_id_1,seq,ang0,ang1,tor0,tor1,fps\n
+    // Emit: T,motor_id_0,motor_id_1,seq,ang0,ang1,tor0,tor1,foc_rate\n
     Serial.print("T,");
     Serial.print(motor_id_0);
     Serial.print(",");
@@ -369,7 +371,7 @@ void loop()
     Serial.print(",");
     Serial.print(tor1_ma);
     Serial.print(",");
-    Serial.print(fps_val);
+    Serial.print(foc_rate_hz);
     Serial.println();
 
     last_telemetry_time = current_time;
