@@ -15,7 +15,7 @@ int Sensor_DIR = 1; // Sensor direction, reverse this value if motor operation i
 int Motor_PP = 7;   // Motor pole pairs
 
 // ==================== ANGLE LIMITS ====================
-#define MAX_ANGLE_TURNS 20                           // Maximum angle in full rotations (decidegrees = turns * 36000)
+#define MAX_ANGLE_TURNS 30                          // Maximum angle in full rotations (decidegrees = turns * 36000)
 #define MAX_ANGLE_DECIDEG (MAX_ANGLE_TURNS * 36000) // ±720,000 decidegrees = ±20 rotations
 
 // ==================== TORQUE CONTROL CONFIGURATION ====================
@@ -388,6 +388,14 @@ void parse_host_command(const char *line)
         dial_config0.detent_distance = fval * 3.1415926f / 1800.0f; // assume value in decideg -> convert to rad
       else if (strcmp(param, "detent_distance_1") == 0)
         dial_config1.detent_distance = fval * 3.1415926f / 1800.0f;
+      else if (strcmp(param, "vibration_amplitude_0") == 0)
+        dial_config0.vibration_amplitude = fval;
+      else if (strcmp(param, "vibration_amplitude_1") == 0)
+        dial_config1.vibration_amplitude = fval;
+      else if (strcmp(param, "oob_kick_amplitude_0") == 0)
+        dial_config0.oob_kick_amplitude = fval;
+      else if (strcmp(param, "oob_kick_amplitude_1") == 0)
+        dial_config1.oob_kick_amplitude = fval;
       // Unknown parameters are ignored
     }
   }
@@ -449,7 +457,8 @@ void loop()
 
   // ==================== FOC & MOTOR CONTROL ====================
   // Run field-oriented control updates and read sensor feedback
-  runFOC();
+  runFOC_M0();
+  runFOC_M1();
 
   // Calculate all enabled torque effects and apply to motors
   dial0.calculate_and_apply_composite_torque();
