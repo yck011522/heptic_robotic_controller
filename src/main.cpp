@@ -11,6 +11,9 @@
 #include <stdint.h>
 #include <math.h>
 
+// ==================== FIRMWARE VERSION ====================
+#define FW_VERSION "0.2.0"
+
 // ==================== MOTOR CONFIGURATION ====================
 int Sensor_DIR = 1; // Sensor direction, reverse this value if motor operation is abnormal
 int Motor_PP = 7;   // Motor pole pairs
@@ -179,12 +182,24 @@ void parse_host_command(const char *line)
       else if (strcmp(param, "oob_kick_amplitude_1") == 0)
         dial_config1.oob_kick_amplitude = fval;
       // Unknown parameters are ignored
+
+      // Acknowledge: S,seq\n
+      Serial.print("S,");
+      Serial.println(seq);
     }
+  }
+  else if (cmd == 'V')
+  {
+    // Version query: host sends "V,seq\n", respond with "V,seq,FW_VERSION\n"
+    Serial.print("V,");
+    Serial.print(seq);
+    Serial.print(",");
+    Serial.println(FW_VERSION);
   }
   else if (cmd == 'E')
   {
-    // Echo test: send R,seq\n
-    Serial.print("R,");
+    // Echo test: host sends "E,seq\n", respond with "R,seq\n"
+    Serial.print("E,");
     Serial.println(seq);
   }
 }
