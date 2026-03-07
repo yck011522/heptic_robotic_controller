@@ -21,7 +21,6 @@ float Dial::get_motor_angle(int motor_index)
 {
     // Retrieve angle from appropriate motor based on index
     return (motor_index == 0) ? DFOC_M0_Angle() : DFOC_M1_Angle();
-    last_kick_time_local = millis();
 }
 
 float Dial::get_motor_speed(int motor_index)
