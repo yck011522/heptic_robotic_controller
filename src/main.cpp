@@ -8,6 +8,7 @@
 
 #include "DengFOC.h"
 #include "Dial.h"
+#include <Preferences.h>
 #include <stdint.h>
 #include <math.h>
 
@@ -24,6 +25,11 @@ int Motor_PP = 7;   // Motor pole pairs
 
 // ==================== TORQUE CONTROL CONFIGURATION ====================
 // Configuration now in Dial.h
+
+// ==================== MOTOR IDENTITY (NVS) ====================
+Preferences prefs;
+uint8_t motor_id_0 = 0; // Persistent identity for motor 0, 0 = unconfigured
+uint8_t motor_id_1 = 0; // Persistent identity for motor 1, 0 = unconfigured
 
 // ==================== GLOBAL INSTANCES AND CONSTANTS ====================
 
@@ -57,6 +63,12 @@ void setup()
 {
   // Initialize serial communication for debugging
   Serial.begin(230400);
+
+  // Load persistent motor identities from NVS
+  prefs.begin("robot", true); // read-only
+  motor_id_0 = prefs.getUChar("motor_id_0", 0);
+  motor_id_1 = prefs.getUChar("motor_id_1", 0);
+  prefs.end();
 
   // Initialize motor enable pin (GPIO 12)
   pinMode(12, OUTPUT);
@@ -188,9 +200,32 @@ void parse_host_command(const char *line)
       Serial.println(seq);
     }
   }
+  else if (cmd == 'I')
+  {
+    // Identity command, host send: I,seq,<id0>,<id1>\n to set, I,seq\n to query
+    // Respond with "I,seq,<motor_id_0>,<motor_id_1>\n"
+    char *id0str = strtok(NULL, delim);
+    char *id1str = strtok(NULL, delim);
+    if (id0str && id1str)
+    {
+      motor_id_0 = (uint8_t)atoi(id0str);
+      motor_id_1 = (uint8_t)atoi(id1str);
+      prefs.begin("robot", false); // read-write
+      prefs.putUChar("motor_id_0", motor_id_0);
+      prefs.putUChar("motor_id_1", motor_id_1);
+      prefs.end();
+    }
+    // Respond with current motor identities
+    Serial.print("I,");
+    Serial.print(seq);
+    Serial.print(",");
+    Serial.print(motor_id_0);
+    Serial.print(",");
+    Serial.println(motor_id_1);
+  }
   else if (cmd == 'V')
   {
-    // Version query: host sends "V,seq\n", respond with "V,seq,FW_VERSION\n"
+    // Version query: respond with "V,seq,<motor_id_0>,<motor_id_1>,FW_VERSION\n"
     Serial.print("V,");
     Serial.print(seq);
     Serial.print(",");
@@ -316,8 +351,12 @@ void loop()
     if (fps_val > 2000)
       fps_val = 2000;
 
-    // Emit: T,seq,ang0,ang1,tor0,tor1,fps\n
+    // Emit: T,motor_id_0,motor_id_1,seq,ang0,ang1,tor0,tor1,fps\n
     Serial.print("T,");
+    Serial.print(motor_id_0);
+    Serial.print(",");
+    Serial.print(motor_id_1);
+    Serial.print(",");
     Serial.print(last_processed_seq);
     Serial.print(",");
     Serial.print(ang0_decideg);
