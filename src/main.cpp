@@ -273,7 +273,7 @@ void parse_host_command(const char *line)
   }
   else if (cmd == 'V')
   {
-    // Version query: respond with "V,seq,<motor_id_0>,<motor_id_1>,FW_VERSION\n"
+    // Version query: respond with "V,seq,FW_VERSION\n"
     Serial.print("V,");
     Serial.print(seq);
     Serial.print(",");
@@ -281,7 +281,7 @@ void parse_host_command(const char *line)
   }
   else if (cmd == 'E')
   {
-    // Echo test: host sends "E,seq\n", respond with "R,seq\n"
+    // Echo test: host sends "E,seq\n", respond with "E,seq\n"
     Serial.print("E,");
     Serial.println(seq);
   }
