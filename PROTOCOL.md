@@ -234,7 +234,7 @@ The controller emits telemetry frames autonomously at a configurable interval (d
 
 **Format:**
 ```
-T,<motor_id_0>,<motor_id_1>,<seq>,<ang0>,<ang1>,<tor0>,<tor1>,<foc_rate>\n
+T,<motor_id_0>,<motor_id_1>,<seq>,<ang0>,<ang1>,<spd0>,<spd1>,<tor0>,<tor1>,<foc_rate>\n
 ```
 
 | Field      | Type   | Description |
@@ -244,15 +244,17 @@ T,<motor_id_0>,<motor_id_1>,<seq>,<ang0>,<ang1>,<tor0>,<tor1>,<foc_rate>\n
 | seq        | uint32 | Sequence number of the last processed `C` command (0 if none received) |
 | ang0       | long   | Current angle of motor 0 (decidegrees) |
 | ang1       | long   | Current angle of motor 1 (decidegrees) |
+| spd0       | long   | Current speed of motor 0 (decidegrees/s) |
+| spd1       | long   | Current speed of motor 1 (decidegrees/s) |
 | tor0       | long   | Current applied torque on motor 0 (milliamps) |
 | tor1       | long   | Current applied torque on motor 1 (milliamps) |
 | foc_rate   | long   | FOC loop rate (Hz), measured over 200 ms windows. Range: 0–2000 |
 
 **Example:**
 ```
-T,3,4,42,1805,-892,150,-200,1100
+T,3,4,42,1805,-892,500,-300,150,-200,1100
 ```
-Interpretation: Motor IDs 3 and 4, last host seq 42, motor 0 at 180.5°, motor 1 at −89.2°, torques 0.15 A and −0.20 A, FOC running at 1100 Hz.
+Interpretation: Motor IDs 3 and 4, last host seq 42, motor 0 at 180.5° moving at 50.0°/s, motor 1 at −89.2° moving at −30.0°/s, torques 0.15 A and −0.20 A, FOC running at 1100 Hz.
 
 ---
 
@@ -262,8 +264,8 @@ Interpretation: Motor IDs 3 and 4, last host seq 42, motor 0 at 180.5°, motor 1
 Host                                Controller
  │                                      │
  │  (open serial port)                  │
- │                                      │──── T,0,0,0,0,0,0,0,1100   (auto-streaming)
- │                                      │──── T,0,0,0,5,−3,0,0,1100
+ │                                      │──── T,0,0,0,0,0,0,0,0,0,1100   (auto-streaming)
+ │                                      │──── T,0,0,0,5,−3,0,0,0,0,1100
  │                                      │
  │── V,1                               │     (version query)
  │                                      │──── V,1,0.2.0
@@ -279,9 +281,9 @@ Host                                Controller
  │                                      │
  │  ┌─ 50 Hz control loop ────────┐    │
  │  │ C,100,0,0,-3600,3600,-3600,3600  │     (set positions + bounds)
- │  │                              │    │──── T,1,2,100,2,-1,50,-30,1100
+ │  │                              │    │──── T,1,2,100,2,-1,10,-5,50,-30,1100
  │  │ C,101,100,50                 │    │
- │  │                              │    │──── T,1,2,101,98,48,120,-80,1100
+ │  │                              │    │──── T,1,2,101,98,48,200,100,120,-80,1100
  │  │ ...                          │    │
  │  └──────────────────────────────┘    │
 ```

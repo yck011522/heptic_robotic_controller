@@ -54,9 +54,9 @@ def reader_thread():
 def handle_line(line):
     if line.startswith("T,"):
         parts = line.split(",")
-        if len(parts) >= 9:
+        if len(parts) >= 11:
             try:
-                fps = int(parts[8])
+                fps = int(parts[10])
                 with lock:
                     fps_values.append(fps)
             except:

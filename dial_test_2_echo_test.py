@@ -14,7 +14,7 @@ import statistics
 # =========================
 PORT = "COM9"
 BAUD = 230400
-TEST_DURATION = 60.0
+TEST_DURATION = 30.0
 RATE_HZ = 50.0
 INTERVAL = 1.0 / RATE_HZ
 
@@ -74,10 +74,10 @@ def handle_line(line):
     # Telemetry reply
     elif line.startswith("T,"):
         parts = line.split(",")
-        if len(parts) < 9:
+        if len(parts) < 11:
             return
         try:
-            fps = int(parts[8])
+            fps = int(parts[10])
         except:
             return
 
@@ -91,7 +91,7 @@ def handle_line(line):
 reader = threading.Thread(target=reader_thread)
 reader.start()
 
-print("Starting 50 Hz control + echo RTT test...")
+print("Starting 50 Hz target update from host + echo RTT test...")
 
 start_time = time.perf_counter()
 next_tick = start_time

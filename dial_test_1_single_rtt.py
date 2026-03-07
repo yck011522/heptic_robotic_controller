@@ -44,11 +44,11 @@ def handle_line(line):
     if not line.startswith("T,"):
         return
     parts = line.split(",")
-    if len(parts) < 9:
+    if len(parts) < 11:
         return
     try:
         seq = int(parts[3])
-        fps = int(parts[8])
+        fps = int(parts[10])
     except:
         return
 

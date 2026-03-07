@@ -392,6 +392,12 @@ void loop()
     else if (tor1_ma < -10000)
       tor1_ma = -10000;
 
+    // Speed: rad/s -> decidegrees/s (0.1 deg/s per unit)
+    float spd0_decideg_f = dial0.last_speed * 1800.0f / 3.1415926f;
+    float spd1_decideg_f = dial1.last_speed * 1800.0f / 3.1415926f;
+    long spd0_decideg = (long)(spd0_decideg_f > 0 ? spd0_decideg_f + 0.5f : spd0_decideg_f - 0.5f);
+    long spd1_decideg = (long)(spd1_decideg_f > 0 ? spd1_decideg_f + 0.5f : spd1_decideg_f - 0.5f);
+
     // Compute FOC rate (int Hz) and clamp to allowed range
     long foc_rate_hz = (long)(last_foc_rate_hz + 0.5f);
     if (foc_rate_hz < 0)
@@ -399,7 +405,7 @@ void loop()
     if (foc_rate_hz > 2000)
       foc_rate_hz = 2000;
 
-    // Emit: T,motor_id_0,motor_id_1,seq,ang0,ang1,tor0,tor1,foc_rate\n
+    // Emit: T,motor_id_0,motor_id_1,seq,ang0,ang1,spd0,spd1,tor0,tor1,foc_rate\n
     Serial.print("T,");
     Serial.print(motor_id_0);
     Serial.print(",");
@@ -410,6 +416,10 @@ void loop()
     Serial.print(ang0_decideg);
     Serial.print(",");
     Serial.print(ang1_decideg);
+    Serial.print(",");
+    Serial.print(spd0_decideg);
+    Serial.print(",");
+    Serial.print(spd1_decideg);
     Serial.print(",");
     Serial.print(tor0_ma);
     Serial.print(",");
