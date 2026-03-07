@@ -410,8 +410,6 @@ void DFOC_Vbus(float power_supply)
   ledcSetup(4, 30000, 8);
   ledcSetup(5, 30000, 8);
 
-  Serial.println("完成双电机PWM初始化设置");
-
   pinMode(enable, OUTPUT);
 
   // Initialize I2C buses and AS5600 encoders
@@ -421,12 +419,10 @@ void DFOC_Vbus(float power_supply)
   S1_I2C.begin(23, 5, 400000UL);
   S0.Sensor_init(&S0_I2C);
   S1.Sensor_init(&S1_I2C);
-  Serial.println("双编码器加载完毕");
 
   // Initialize built-in current sense ADC channels
   CS_M0.init();
   CS_M1.init();
-  Serial.println("双电流传感器初始化完成");
 }
 
 // ==================== ANGLE CALCULATION FUNCTIONS ====================
@@ -475,8 +471,6 @@ void DFOC_M0_alignSensor(int _PP, int _DIR)
 
   // Stop motor
   M0_setTorque(0, _3PI_2);
-  Serial.print("M0 0电角度：");
-  Serial.println(M0_zero_electric_angle);
 }
 
 /// @brief Align Motor 1 encoder to motor pole positions (calibration routine)
@@ -501,8 +495,6 @@ void DFOC_M1_alignSensor(int _PP, int _DIR)
 
   // Stop motor
   M1_setTorque(0, _3PI_2);
-  Serial.print("M1 0电角度：");
-  Serial.println(M1_zero_electric_angle);
 }
 
 // ==================== SENSOR GETTER FUNCTIONS ====================
@@ -614,7 +606,6 @@ String serialReceiveUserCommand()
       if (commaPosition != -1)
       {
         motor_target = command.substring(0, commaPosition).toDouble();
-        Serial.println(motor_target);
       }
       received_chars = "";
     }
