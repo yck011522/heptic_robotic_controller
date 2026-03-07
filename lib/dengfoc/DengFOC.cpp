@@ -24,6 +24,11 @@
 /// Constrains value to range [low, high]
 #define _constrain(amt, low, high) ((amt) < (low) ? (low) : ((amt) > (high) ? (high) : (amt)))
 
+// ==================== I2C CONFIGURATION ====================
+/// AS5600 encoder I2C clock speed (Hz)
+/// 400000 = safe default, 800000 = good compromise, 1000000 = max (may need short wires)
+#define I2C_CLOCK_HZ 400000UL
+
 // ==================== POWER SUPPLY ====================
 /// System bus voltage (set via DFOC_Vbus())
 float voltage_power_supply;
@@ -423,10 +428,8 @@ void DFOC_Vbus(float power_supply)
   pinMode(enable, OUTPUT);
 
   // Initialize I2C buses and AS5600 encoders
-  // I2C0: Motor 0 encoder at 400 kHz
-  // I2C1: Motor 1 encoder at 400 kHz
-  S0_I2C.begin(19, 18, 400000UL);
-  S1_I2C.begin(23, 5, 400000UL);
+  S0_I2C.begin(19, 18, I2C_CLOCK_HZ);
+  S1_I2C.begin(23, 5, I2C_CLOCK_HZ);
   S0.Sensor_init(&S0_I2C);
   S1.Sensor_init(&S1_I2C);
 
