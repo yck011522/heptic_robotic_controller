@@ -14,7 +14,7 @@ import statistics
 # =========================
 PORT = "COM9"
 BAUD = 230400
-TEST_DURATION = 30.0
+TEST_DURATION = 10.0
 RATE_HZ = 50.0
 INTERVAL = 1.0 / RATE_HZ
 

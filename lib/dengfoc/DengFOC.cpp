@@ -115,8 +115,12 @@ TwoWire S1_I2C = TwoWire(1); ///< I2C bus 1 (GPIO 23=SDA, 5=SCL)
 #define _1_SQRT3 0.57735026919f
 /// 2/sqrt(3) for abc-to-dq transformation
 #define _2_SQRT3 1.15470053838f
+/// sqrt(3) precomputed constant
+#define _SQRT3 1.73205080757f
 /// Pi constant
 #define _PI 3.14159265359f
+/// 2*Pi constant
+#define _2PI_F 6.28318530718f
 /// 3*Pi/2 constant
 #define _3PI_2 4.71238898038f
 
@@ -265,8 +269,8 @@ float _normalizeAngle(float angle)
 {
   // Returns an angle in radians normalized to the range [0, 2*PI)
   // Handles both positive and negative input angles
-  float a = fmod(angle, 2 * PI);
-  return a >= 0 ? a : (a + 2 * PI);
+  float a = fmodf(angle, _2PI_F);
+  return a >= 0 ? a : (a + _2PI_F);
 }
 
 // ==================== PWM CONTROL FUNCTIONS ====================
@@ -323,14 +327,17 @@ float M0_setTorque(float Uq, float angle_el)
   angle_el = _normalizeAngle(angle_el);
 
   // Inverse Park: dq -> alphabeta (convert q-axis voltage to cartesian space)
-  float Ualpha = -Uq * sin(angle_el);
-  float Ubeta = Uq * cos(angle_el);
+  float sa = sinf(angle_el);
+  float ca = cosf(angle_el);
+  float Ualpha = -Uq * sa;
+  float Ubeta = Uq * ca;
 
   // Inverse Clarke: alphabeta -> abc (convert cartesian to three-phase)
   // Adds DC offset of Vbus/2 to center PWM around mid-rail
-  float Ua = Ualpha + voltage_power_supply / 2;
-  float Ub = (sqrt(3) * Ubeta - Ualpha) / 2 + voltage_power_supply / 2;
-  float Uc = (-Ualpha - sqrt(3) * Ubeta) / 2 + voltage_power_supply / 2;
+  float half_vbus = voltage_power_supply * 0.5f;
+  float Ua = Ualpha + half_vbus;
+  float Ub = (_SQRT3 * Ubeta - Ualpha) * 0.5f + half_vbus;
+  float Uc = (-Ualpha - _SQRT3 * Ubeta) * 0.5f + half_vbus;
 
   M0_setPwm(Ua, Ub, Uc);
   return Uq;
@@ -348,14 +355,17 @@ float M1_setTorque(float Uq, float angle_el)
   angle_el = _normalizeAngle(angle_el);
 
   // Inverse Park: dq -> alphabeta (convert q-axis voltage to cartesian space)
-  float Ualpha = -Uq * sin(angle_el);
-  float Ubeta = Uq * cos(angle_el);
+  float sa = sinf(angle_el);
+  float ca = cosf(angle_el);
+  float Ualpha = -Uq * sa;
+  float Ubeta = Uq * ca;
 
   // Inverse Clarke: alphabeta -> abc (convert cartesian to three-phase)
   // Adds DC offset of Vbus/2 to center PWM around mid-rail
-  float Ua = Ualpha + voltage_power_supply / 2;
-  float Ub = (sqrt(3) * Ubeta - Ualpha) / 2 + voltage_power_supply / 2;
-  float Uc = (-Ualpha - sqrt(3) * Ubeta) / 2 + voltage_power_supply / 2;
+  float half_vbus = voltage_power_supply * 0.5f;
+  float Ua = Ualpha + half_vbus;
+  float Ub = (_SQRT3 * Ubeta - Ualpha) * 0.5f + half_vbus;
+  float Uc = (-Ualpha - _SQRT3 * Ubeta) * 0.5f + half_vbus;
 
   M1_setPwm(Ua, Ub, Uc);
   return Uq;
@@ -530,8 +540,8 @@ float cal_Iq_Id(float current_a, float current_b, float angle_el)
 
   // Park Transform: alphabeta -> dq (cartesian to rotating reference frame)
   // Rotates by electrical angle to align with motor magnetic field
-  float ct = cos(angle_el);
-  float st = sin(angle_el);
+  float ct = cosf(angle_el);
+  float st = sinf(angle_el);
   float I_q = I_beta * ct - I_alpha * st; // q-axis current (torque component)
   return I_q;
 }
@@ -700,7 +710,10 @@ void DFOC_M1_set_Force_Angle(float Target)
 /// @note Current loop K_p = 1.2 V/A => 1.2V applied per amp of current error
 void DFOC_M0_setTorque_current(float Target)
 {
-  M0_setTorque(M0_current_loop(Target - DFOC_M0_Current()), M0_electricalAngle());
+  // Compute electrical angle once and reuse for both current measurement and torque output
+  float angle_el = M0_electricalAngle();
+  float I_q = M0_Curr_Flt(cal_Iq_Id(CS_M0.current_a, CS_M0.current_b, angle_el));
+  M0_setTorque(M0_current_loop(Target - I_q), angle_el);
 }
 
 /// @brief Motor 1 current/torque control (voltage-source current controller)
@@ -710,7 +723,10 @@ void DFOC_M0_setTorque_current(float Target)
 /// @note Current loop K_p = 1.2 V/A => 1.2V applied per amp of current error
 void DFOC_M1_setTorque_current(float Target)
 {
-  M1_setTorque(M1_current_loop(Target - DFOC_M1_Current()), M1_electricalAngle());
+  // Compute electrical angle once and reuse for both current measurement and torque output
+  float angle_el = M1_electricalAngle();
+  float I_q = M1_Curr_Flt(cal_Iq_Id(CS_M1.current_a, CS_M1.current_b, angle_el));
+  M1_setTorque(M1_current_loop(Target - I_q), angle_el);
 }
 
 // ==================== SENSOR UPDATE (MAIN LOOP) ====================

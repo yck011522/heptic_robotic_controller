@@ -1,90 +1,88 @@
 #include "AS5600.h"
 #include "Wire.h"
-#include <Arduino.h> 
+#include <Arduino.h>
 
 #define _2PI 6.28318530718f
 
+// AS5600 相关
+// Precomputed constants for 12-bit AS5600 angle register decoding
+static constexpr float CPR = 4096.0f;            // 2^12
+static constexpr uint8_t LSB_MASK = 0xFF;        // (2 << 8) - 1 = 0xFF for lower 8 bits
+static constexpr uint8_t MSB_MASK = 0x0F;        // (2 << 4) - 1 = 0x0F for upper 4 bits
+static constexpr int LSB_USED = 8;               // 12 - 4
+static constexpr float CPR_INV_2PI = _2PI / CPR; // precomputed multiplier
 
+float Sensor_AS5600::getSensorAngle()
+{
+    wire->beginTransmission(0x36);
+    wire->write((uint8_t)0x0C);
+    wire->endTransmission(false);
+
+    wire->requestFrom((uint8_t)0x36, (uint8_t)2);
+    uint8_t msb = wire->read();
+    uint8_t lsb = wire->read();
+
+    uint16_t readValue = (lsb & LSB_MASK) + ((msb & MSB_MASK) << LSB_USED);
+    return readValue * CPR_INV_2PI;
+}
 
 // AS5600 相关
-double Sensor_AS5600::getSensorAngle() {
-  uint8_t angle_reg_msb = 0x0C;
-
-  byte readArray[2];
-  uint16_t readValue = 0;
-
-  wire->beginTransmission(0x36);
-  wire->write(angle_reg_msb);
-  wire->endTransmission(false);
-
-
-  wire->requestFrom(0x36, (uint8_t)2);
-  for (byte i=0; i < 2; i++) {
-    readArray[i] = wire->read();
-  }
-  int _bit_resolution=12;
-  int _bits_used_msb=11-7;
-  float cpr = pow(2, _bit_resolution);
-  int lsb_used = _bit_resolution - _bits_used_msb;
-
-  uint8_t lsb_mask = (uint8_t)( (2 << lsb_used) - 1 );
-  uint8_t msb_mask = (uint8_t)( (2 << _bits_used_msb) - 1 );
-  
-  readValue = ( readArray[1] &  lsb_mask );
-  readValue += ( ( readArray[0] & msb_mask ) << lsb_used );
-  return (readValue/ (float)cpr) * _2PI; 
-
-}
-
-//AS5600 相关
 
 //=========角度处理相关=============
-Sensor_AS5600::Sensor_AS5600(int Mot_Num) {
-   _Mot_Num=Mot_Num;  //使得 Mot_Num 可以统一在该文件调用
-   
+Sensor_AS5600::Sensor_AS5600(int Mot_Num)
+{
+    _Mot_Num = Mot_Num; // 使得 Mot_Num 可以统一在该文件调用
 }
-void Sensor_AS5600::Sensor_init(TwoWire* _wire) {
-    wire=_wire;
-    wire->begin();   //电机Sensor
+void Sensor_AS5600::Sensor_init(TwoWire *_wire)
+{
+    wire = _wire;
+    wire->begin(); // 电机Sensor
     delay(500);
-    getSensorAngle(); 
+    getSensorAngle();
     delayMicroseconds(1);
-    vel_angle_prev = getSensorAngle(); 
+    vel_angle_prev = getSensorAngle();
     vel_angle_prev_ts = micros();
     delay(1);
-    getSensorAngle(); 
+    getSensorAngle();
     delayMicroseconds(1);
-    angle_prev = getSensorAngle(); 
+    angle_prev = getSensorAngle();
     angle_prev_ts = micros();
 }
-void Sensor_AS5600::Sensor_update() {
+void Sensor_AS5600::Sensor_update()
+{
     float val = getSensorAngle();
     angle_prev_ts = micros();
     float d_angle = val - angle_prev;
     // 圈数检测
-    if(abs(d_angle) > (0.8f*_2PI) ) full_rotations += ( d_angle > 0 ) ? -1 : 1; 
+    if (abs(d_angle) > (0.8f * _2PI))
+        full_rotations += (d_angle > 0) ? -1 : 1;
     // Avoid overflow
-    if (abs(full_rotations) > 100){
+    if (abs(full_rotations) > 100)
+    {
         full_rotations = 0;
     }
     angle_prev = val;
 }
 
-float Sensor_AS5600::getMechanicalAngle() {
+float Sensor_AS5600::getMechanicalAngle()
+{
     return angle_prev;
 }
 
-float Sensor_AS5600::getAngle(){
+float Sensor_AS5600::getAngle()
+{
     return (float)full_rotations * _2PI + angle_prev;
 }
 
-float Sensor_AS5600::getVelocity() {
+float Sensor_AS5600::getVelocity()
+{
     // 计算采样时间
-    float Ts = (angle_prev_ts - vel_angle_prev_ts)*1e-6;
+    float Ts = (angle_prev_ts - vel_angle_prev_ts) * 1e-6;
     // 快速修复奇怪的情况（微溢出）
-    if(Ts <= 0) Ts = 1e-3f;
+    if (Ts <= 0)
+        Ts = 1e-3f;
     // 速度计算
-    float vel = ( (float)(full_rotations - vel_full_rotations)*_2PI + (angle_prev - vel_angle_prev) ) / Ts;    
+    float vel = ((float)(full_rotations - vel_full_rotations) * _2PI + (angle_prev - vel_angle_prev)) / Ts;
     // 保存变量以待将来使用
     vel_angle_prev = angle_prev;
     vel_full_rotations = full_rotations;
