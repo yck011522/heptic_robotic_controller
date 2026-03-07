@@ -119,6 +119,7 @@ void parse_host_command(const char *line)
   if (cmd == 'C')
   {
     // Expect: C,seq,pos0,pos1,min0,max0,min1,max1
+    // pos0,pos1 required, min/max optional (if not provided, bounds are not updated)
     char *f[8];
     int i = 0;
     while (i < 8 && (f[i] = strtok(NULL, delim)) != NULL)
