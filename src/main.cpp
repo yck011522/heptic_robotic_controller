@@ -337,11 +337,15 @@ void loop()
 
   // ==================== FOC & MOTOR CONTROL ====================
   // Read both sensors in parallel (S0 on Core 1, S1 on Core 0)
-  runFOC_both();
+  FOC_read_encoder_both();
+
+  // Removed current read because we are not current control for better stability.
+  // FOC_read_current_both();
 
   // Calculate all enabled torque effects and apply to motors
-  dial0.calculate_and_apply_composite_torque();
-  dial1.calculate_and_apply_composite_torque();
+  // Current control is off for better stability.
+  dial0.calculate_and_apply_composite_torque(false);
+  dial1.calculate_and_apply_composite_torque(false);
 
   // ==================== FOC RATE MEASUREMENT ====================
   // Measure FOC rate over independent measurement window (decoupled from telemetry interval)

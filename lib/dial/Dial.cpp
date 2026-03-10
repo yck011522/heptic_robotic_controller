@@ -146,20 +146,26 @@ float Dial::calculate_composite_torque(unsigned long now)
     return total;
 }
 
-void Dial::apply_torque(float torque)
+void Dial::apply_torque(float torque, bool use_current_control)
 {
     // Send calculated torque command to appropriate motor
     if (motor_index == 0)
-        DFOC_M0_setTorque_current(torque);
+        if (use_current_control)
+            DFOC_M0_setTorque_current(torque);
+        else
+             DFOC_M0_setTorque(torque);
     else
-        DFOC_M1_setTorque_current(torque);
+        if (use_current_control)
+            DFOC_M1_setTorque_current(torque);
+        else
+            DFOC_M1_setTorque(torque);
     last_torque = torque;
 }
 
-void Dial::calculate_and_apply_composite_torque()
+void Dial::calculate_and_apply_composite_torque(bool use_current_control)
 {
     // Main control loop: calculate all torques and apply to motor
     unsigned long now = millis();
     float t = calculate_composite_torque(now);
-    apply_torque(t);
+    apply_torque(t, use_current_control); // false indicates torque control, true would indicate current control
 }

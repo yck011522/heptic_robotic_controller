@@ -776,7 +776,7 @@ static void initParallelSensorTask()
 /// @brief Update all sensor data with parallel I2C reads (dual-motor mode)
 /// Kicks off S1 read on Core 0, reads S0 on Core 1, then waits for S1 to finish
 /// On first call, automatically creates the FreeRTOS helper task.
-void runFOC_both()
+void FOC_read_encoder_both()
 {
   // Lazy-init: create the Core 0 task on first call
   if (s1_start_sem == NULL)
@@ -785,12 +785,17 @@ void runFOC_both()
   xSemaphoreGive(s1_start_sem);
   // Read S0 sensor (I2C bus 0) on this core
   S0.Sensor_update();
-  // Read both current sensors on main core (analogRead is not thread-safe across cores)
-  CS_M0.getPhaseCurrents();
-  CS_M1.getPhaseCurrents();
   // Wait for S1 I2C read to finish (typically already done by now)
   xSemaphoreTake(s1_done_sem, portMAX_DELAY);
 }
+
+void FOC_read_current_both()
+{
+  // Read both current sensors on main core (analogRead is not thread-safe across cores)
+  CS_M0.getPhaseCurrents();
+  CS_M1.getPhaseCurrents();
+}
+
 
 /// @brief Update sensor data for M0 only (single-motor or sequential mode)
 void runFOC_M0()
