@@ -23,6 +23,8 @@ int motor_pole_pairs = 7; // Motor pole pairs
 #define MAX_ANGLE_TURNS 30                          // Maximum angle in full rotations (decidegrees = turns * 36000)
 #define MAX_ANGLE_DECIDEG (MAX_ANGLE_TURNS * 36000) // ±720,000 decidegrees = ±20 rotations
 
+#define USE_CURRENT_CONTROL false // Set to true to enable current control mode (requires current sensing hardware and configuration)
+
 // ==================== TORQUE CONTROL CONFIGURATION ====================
 // Configuration now in Dial.h
 
@@ -340,12 +342,12 @@ void loop()
   FOC_read_encoder_both();
 
   // Removed current read because we are not current control for better stability.
-  // FOC_read_current_both();
+  if (USE_CURRENT_CONTROL)  FOC_read_current_both();
 
   // Calculate all enabled torque effects and apply to motors
   // Current control is off for better stability.
-  dial0.calculate_and_apply_composite_torque(false);
-  dial1.calculate_and_apply_composite_torque(false);
+  dial0.calculate_and_apply_composite_torque(USE_CURRENT_CONTROL);
+  dial1.calculate_and_apply_composite_torque(USE_CURRENT_CONTROL);
 
   // ==================== FOC RATE MEASUREMENT ====================
   // Measure FOC rate over independent measurement window (decoupled from telemetry interval)

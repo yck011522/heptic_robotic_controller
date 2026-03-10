@@ -21,20 +21,20 @@ struct DialConfig
     float bounds_min_angle = -10.1415926; // Minimum allowed angle (radians, ~-180°)
     float bounds_max_angle = 10.1415926;  // Maximum allowed angle (radians, ~+180°)
     float bounds_kp = 10.0;              // Proportional gain for bounds correction (larger than detent)
-    float bounds_max_torque = 0.5;       // Maximum absolute torque magnitude (A)
+    float bounds_max_torque = 0.3;       // Maximum absolute torque magnitude (A)
 
     // Tracking position parameters
     float tracking_position = 0.0;   // Target position to track towards (radians)
-    float tracking_kp = 0.3;         // Proportional gain for position tracking
-    float tracking_kd = 0.01;         // Derivative gain for position tracking (damping)
-    float tracking_max_torque = 1.1; // Maximum absolute torque magnitude (A)
+    float tracking_kp = 0.2;         // Proportional gain for position tracking
+    float tracking_kd = 0.005;         // Derivative gain for position tracking (damping)
+    float tracking_max_torque = 1.0; // Maximum absolute torque magnitude (A)
 
     // Vibration/debug parameters
     float vibration_amplitude = 0.3;                  // Amplitude of vibration test pulse (A)
     unsigned long vibration_pulse_interval_ms = 1000; // Interval between vibration pulses (ms)
 
     // Out-of-bounds (OOB) kicking mode
-    float oob_kick_amplitude = 0.4;                // Amplitude of OOB kick (A)
+    float oob_kick_amplitude = 0.3;                // Amplitude of OOB kick (A)
     unsigned long oob_kick_pulse_interval_ms = 40; // Interval between OOB kicks (ms)
 };
 
