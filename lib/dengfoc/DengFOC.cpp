@@ -26,9 +26,6 @@
 #include "pid.h"
 #include "InlineCurrent.h"
 #include "DengFOC.h"
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#include <freertos/semphr.h>
 
 // ==================== UTILITY MACROS ====================
 /// Constrains value to range [low, high]
@@ -742,66 +739,26 @@ void DFOC_M1_setTorque_current(float Target)
   M1_setTorque(M1_current_loop(Target - I_q), angle_el);
 }
 
-// ==================== PARALLEL SENSOR READ (FreeRTOS) ====================
-/// Semaphores for parallel I2C sensor reads on separate cores
-static SemaphoreHandle_t s1_start_sem = NULL; ///< Main loop signals S1 task to begin reading
-static SemaphoreHandle_t s1_done_sem = NULL;  ///< S1 task signals main loop that read is complete
-
-/// @brief FreeRTOS task that reads Motor 1 sensor on Core 0
-/// Waits for signal from main loop, reads S1 I2C only (ADC not thread-safe across cores)
-static void s1_sensor_task(void *param)
-{
-  (void)param;
-  for (;;)
-  {
-    // Wait for main loop to signal start
-    xSemaphoreTake(s1_start_sem, portMAX_DELAY);
-    // Read S1 encoder (I2C bus 1) only — ADC reads stay on main core
-    S1.Sensor_update();
-    // Signal main loop that S1 I2C read is complete
-    xSemaphoreGive(s1_done_sem);
-  }
-}
-
-/// @brief Initialize the parallel sensor read task (lazy, called on first runFOC_both)
-static void initParallelSensorTask()
-{
-  s1_start_sem = xSemaphoreCreateBinary();
-  s1_done_sem = xSemaphoreCreateBinary();
-  // Pin S1 sensor task to Core 0 (main loop runs on Core 1)
-  xTaskCreatePinnedToCore(s1_sensor_task, "S1_sensor", 2048, NULL, 1, NULL, 0);
-}
-
 // ==================== SENSOR UPDATE (MAIN LOOP) ====================
-/// @brief Update all sensor data with parallel I2C reads (dual-motor mode)
-/// Kicks off S1 read on Core 0, reads S0 on Core 1, then waits for S1 to finish
-/// On first call, automatically creates the FreeRTOS helper task.
+/// @brief Update both sensors sequentially (simple, no FreeRTOS needed)
 void runFOC_both()
 {
-  // Lazy-init: create the Core 0 task on first call
-  if (s1_start_sem == NULL)
-    initParallelSensorTask();
-  // Signal S1 task to start I2C read (runs on Core 0 in parallel)
-  xSemaphoreGive(s1_start_sem);
-  // Read S0 sensor (I2C bus 0) on this core
   S0.Sensor_update();
-  // Read both current sensors on main core (analogRead is not thread-safe across cores)
-  CS_M0.getPhaseCurrents();
-  CS_M1.getPhaseCurrents();
-  // Wait for S1 I2C read to finish (typically already done by now)
-  xSemaphoreTake(s1_done_sem, portMAX_DELAY);
+  S1.Sensor_update();
+  // CS_M0.getPhaseCurrents();
+  // CS_M1.getPhaseCurrents();
 }
 
 /// @brief Update sensor data for M0 only (single-motor or sequential mode)
 void runFOC_M0()
 {
   S0.Sensor_update();
-  CS_M0.getPhaseCurrents();
+  // CS_M0.getPhaseCurrents();
 }
 
 /// @brief Update sensor data for M1 only (single-motor or sequential mode)
 void runFOC_M1()
 {
   S1.Sensor_update();
-  CS_M1.getPhaseCurrents();
+  // CS_M1.getPhaseCurrents();
 }

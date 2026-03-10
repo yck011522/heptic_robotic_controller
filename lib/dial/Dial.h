@@ -15,26 +15,26 @@ struct DialConfig
     // Detent mode parameters
     float detent_distance = 10 * 3.1415926 / 180.0; // One detent position every ~10 degrees
     float detent_kp = 5.0;                          // Proportional gain for detent spring effect
-    float detent_max_torque = 1.0;                  // Maximum absolute torque magnitude (A)
+    float detent_max_torque = 0.2;                  // Maximum absolute torque magnitude (A)
 
     // Bounds restoration parameters
-    float bounds_min_angle = -3.1415926; // Minimum allowed angle (radians, ~-180°)
-    float bounds_max_angle = 3.1415926;  // Maximum allowed angle (radians, ~+180°)
-    float bounds_kp = 20.0;              // Proportional gain for bounds correction (larger than detent)
-    float bounds_max_torque = 3.0;       // Maximum absolute torque magnitude (A)
+    float bounds_min_angle = -10.1415926; // Minimum allowed angle (radians, ~-180°)
+    float bounds_max_angle = 10.1415926;  // Maximum allowed angle (radians, ~+180°)
+    float bounds_kp = 10.0;              // Proportional gain for bounds correction (larger than detent)
+    float bounds_max_torque = 0.5;       // Maximum absolute torque magnitude (A)
 
     // Tracking position parameters
     float tracking_position = 0.0;   // Target position to track towards (radians)
-    float tracking_kp = 5.0;         // Proportional gain for position tracking
-    float tracking_kd = 0.1;         // Derivative gain for position tracking (damping)
-    float tracking_max_torque = 2.0; // Maximum absolute torque magnitude (A)
+    float tracking_kp = 0.3;         // Proportional gain for position tracking
+    float tracking_kd = 0.01;         // Derivative gain for position tracking (damping)
+    float tracking_max_torque = 1.1; // Maximum absolute torque magnitude (A)
 
     // Vibration/debug parameters
-    float vibration_amplitude = 1.0;                  // Amplitude of vibration test pulse (A)
+    float vibration_amplitude = 0.3;                  // Amplitude of vibration test pulse (A)
     unsigned long vibration_pulse_interval_ms = 1000; // Interval between vibration pulses (ms)
 
     // Out-of-bounds (OOB) kicking mode
-    float oob_kick_amplitude = 1.0;                // Amplitude of OOB kick (A)
+    float oob_kick_amplitude = 0.4;                // Amplitude of OOB kick (A)
     unsigned long oob_kick_pulse_interval_ms = 40; // Interval between OOB kicks (ms)
 };
 
@@ -52,6 +52,7 @@ public:
     float last_torque; // Last calculated torque value (A)
     float last_angle;  // Last measured motor angle (radians)
     float last_speed;  // Last measured motor speed (rad/s)
+    float max_torque; // Maximum allowed torque magnitude (A)
 
     Dial(int idx = 0, DialConfig *c = nullptr);
 

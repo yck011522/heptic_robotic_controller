@@ -7,6 +7,8 @@ Dial::Dial(int idx, DialConfig *c)
     cfg = c;                       // Bind to configuration structure
     last_vibration_time_local = 0; // Initialize vibration timer
     last_angle = 0.0;              // Initialize angle tracking
+    max_torque = 1.0;             // Initialize torque tracking
+
 }
 
 void Dial::begin()
@@ -150,9 +152,12 @@ void Dial::apply_torque(float torque)
 {
     // Send calculated torque command to appropriate motor
     if (motor_index == 0)
-        DFOC_M0_setTorque_current(torque);
+        // DFOC_M0_setTorque_current(torque);
+        DFOC_M0_setTorque(torque);
+
     else
-        DFOC_M1_setTorque_current(torque);
+        // DFOC_M1_setTorque_current(torque);
+        DFOC_M1_setTorque(torque);
     last_torque = torque;
 }
 
@@ -161,5 +166,13 @@ void Dial::calculate_and_apply_composite_torque()
     // Main control loop: calculate all torques and apply to motor
     unsigned long now = millis();
     float t = calculate_composite_torque(now);
+
+    // Clamp final torque to maximum allowed magnitude before applying
+    if (t > max_torque)
+        t = max_torque;
+    else if (t < -max_torque)
+        t = -max_torque;
+
+    // Apply the final torque command to the motor
     apply_torque(t);
 }

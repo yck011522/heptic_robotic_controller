@@ -336,8 +336,8 @@ void loop()
   process_serial_input();
 
   // ==================== FOC & MOTOR CONTROL ====================
-  // Read both sensors in parallel (S0 on Core 1, S1 on Core 0)
-  runFOC_both();
+  runFOC_M0();
+  runFOC_M1();
 
   // Calculate all enabled torque effects and apply to motors
   dial0.calculate_and_apply_composite_torque();
@@ -406,25 +406,27 @@ void loop()
 
     // Emit: T,motor_id_0,motor_id_1,seq,ang0,ang1,spd0,spd1,tor0,tor1,foc_rate\n
     Serial.print("T,");
-    Serial.print(motor_id_0);
-    Serial.print(",");
-    Serial.print(motor_id_1);
-    Serial.print(",");
-    Serial.print(last_processed_seq);
-    Serial.print(",");
+    // Serial.print(motor_id_0);
+    // Serial.print(",");
+    // Serial.print(motor_id_1);
+    // Serial.print(",");
+    // Serial.print(last_processed_seq);
+    // Serial.print(",");
     Serial.print(ang0_decideg);
     Serial.print(",");
     Serial.print(ang1_decideg);
     Serial.print(",");
-    Serial.print(spd0_decideg);
-    Serial.print(",");
-    Serial.print(spd1_decideg);
-    Serial.print(",");
+    // Serial.print(spd0_decideg);
+    // Serial.print(",");
+    // Serial.print(spd1_decideg);
+    // Serial.print(",");
     Serial.print(tor0_ma);
     Serial.print(",");
     Serial.print(tor1_ma);
     Serial.print(",");
     Serial.print(foc_rate_hz);
+    Serial.print(",");
+    Serial.print(current_time);
     Serial.println();
 
     last_telemetry_time = current_time;

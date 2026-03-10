@@ -14,16 +14,33 @@ static constexpr float CPR_INV_2PI = _2PI / CPR; // precomputed multiplier
 
 float Sensor_AS5600::getSensorAngle()
 {
+    // Use STOP between write and read (endTransmission(true)) so the ESP32 Wire
+    // library dispatches two separate I2C transactions instead of the combined
+    // i2cWriteReadNonStop() path, which fails when both I2C peripherals are active.
     wire->beginTransmission(0x36);
     wire->write((uint8_t)0x0C);
-    wire->endTransmission(false);
+    uint8_t err = wire->endTransmission(true);
+    if (err != 0)
+    {
+        i2c_error_count++;
+        return last_valid_raw_angle;
+    }
 
-    wire->requestFrom((uint8_t)0x36, (uint8_t)2);
+    uint8_t count = wire->requestFrom((uint8_t)0x36, (uint8_t)2);
+    if (count < 2)
+    {
+        while (wire->available())
+            wire->read();
+        i2c_error_count++;
+        return last_valid_raw_angle;
+    }
+
     uint8_t msb = wire->read();
     uint8_t lsb = wire->read();
 
     uint16_t readValue = (lsb & LSB_MASK) + ((msb & MSB_MASK) << LSB_USED);
-    return readValue * CPR_INV_2PI;
+    last_valid_raw_angle = readValue * CPR_INV_2PI;
+    return last_valid_raw_angle;
 }
 
 // AS5600 相关
@@ -36,7 +53,6 @@ Sensor_AS5600::Sensor_AS5600(int Mot_Num)
 void Sensor_AS5600::Sensor_init(TwoWire *_wire)
 {
     wire = _wire;
-    wire->begin(); // 电机Sensor
     delay(500);
     getSensorAngle();
     delayMicroseconds(1);
