@@ -16,14 +16,18 @@ float Sensor_AS5600::getSensorAngle()
 {
     wire->beginTransmission(0x36);
     wire->write((uint8_t)0x0C);
-    wire->endTransmission(false);
+    if (wire->endTransmission(false) != 0)
+        return last_valid_angle; // NACK or bus error — return last good reading
 
-    wire->requestFrom((uint8_t)0x36, (uint8_t)2);
+    if (wire->requestFrom((uint8_t)0x36, (uint8_t)2) != 2)
+        return last_valid_angle; // Short read — return last good reading
+
     uint8_t msb = wire->read();
     uint8_t lsb = wire->read();
 
     uint16_t readValue = (lsb & LSB_MASK) + ((msb & MSB_MASK) << LSB_USED);
-    return readValue * CPR_INV_2PI;
+    last_valid_angle = readValue * CPR_INV_2PI;
+    return last_valid_angle;
 }
 
 // AS5600 相关
@@ -36,7 +40,9 @@ Sensor_AS5600::Sensor_AS5600(int Mot_Num)
 void Sensor_AS5600::Sensor_init(TwoWire *_wire)
 {
     wire = _wire;
-    wire->begin(); // 电机Sensor
+    // Note: wire->begin() must be called by the caller before Sensor_init.
+    // Do NOT call wire->begin() here as it re-initializes the I2C peripheral
+    // and resets timeout settings.
     delay(500);
     getSensorAngle();
     delayMicroseconds(1);

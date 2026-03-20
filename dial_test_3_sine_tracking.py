@@ -13,7 +13,7 @@ import statistics
 # =========================
 # Configuration
 # =========================
-PORT = "COM9"
+PORT = "COM8"
 BAUD = 230400
 TEST_DURATION = 20.0
 CONTROL_HZ = 50.0
@@ -21,8 +21,8 @@ INTERVAL = 1.0 / CONTROL_HZ
 PERIOD = 20.0  # seconds per sine cycle
 
 # Motion limits (decidegrees)
-MIN_ANGLE = -10800  # -10 degrees
-MAX_ANGLE = 10800  # +10 degrees
+MIN_ANGLE = -108000  # -10 degrees
+MAX_ANGLE = 108000  # +10 degrees
 
 AMPLITUDE = (MAX_ANGLE - MIN_ANGLE) / 2 * 0.5  # 50% of the range
 CENTER = (MAX_ANGLE + MIN_ANGLE) / 2
@@ -54,9 +54,9 @@ def reader_thread():
 def handle_line(line):
     if line.startswith("T,"):
         parts = line.split(",")
-        if len(parts) >= 11:
+        if len(parts) >= 7:
             try:
-                fps = int(parts[10])
+                fps = int(parts[6])
                 with lock:
                     fps_values.append(fps)
             except:
@@ -89,9 +89,8 @@ while time.perf_counter() - start_time < TEST_DURATION:
         phase = 2.0 * math.pi * (t / PERIOD)
 
         pos0 = int(CENTER + AMPLITUDE * math.sin(phase))
-        pos1 = int(CENTER + AMPLITUDE * math.sin(phase))
 
-        cmd = f"C,{seq},{pos0},{pos1},{MIN_ANGLE},{MAX_ANGLE},{MIN_ANGLE},{MAX_ANGLE}\n"
+        cmd = f"C,{seq},{pos0},{MIN_ANGLE},{MAX_ANGLE}\n"
         ser.write(cmd.encode())
 
         next_tick += INTERVAL

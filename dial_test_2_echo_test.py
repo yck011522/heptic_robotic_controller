@@ -74,10 +74,10 @@ def handle_line(line):
     # Telemetry reply
     elif line.startswith("T,"):
         parts = line.split(",")
-        if len(parts) < 11:
+        if len(parts) < 7:
             return
         try:
-            fps = int(parts[10])
+            fps = int(parts[6])
         except:
             return
 
@@ -108,7 +108,7 @@ while time.perf_counter() - start_time < TEST_DURATION:
         seq += 1
 
         # --- Send Control Command ---
-        c_cmd = f"C,{seq},0,0,-3600,3600,-3600,3600\n"
+        c_cmd = f"C,{seq},0,-3600,3600\n"
         ser.write(c_cmd.encode())
 
         # --- Send Echo Command ---

@@ -44,11 +44,11 @@ def handle_line(line):
     if not line.startswith("T,"):
         return
     parts = line.split(",")
-    if len(parts) < 11:
+    if len(parts) < 7:
         return
     try:
-        seq = int(parts[3])
-        fps = int(parts[10])
+        seq = int(parts[2])
+        fps = int(parts[6])
     except:
         return
 
@@ -72,7 +72,7 @@ while time.perf_counter() - start_time < TEST_DURATION:
     now = time.perf_counter()
     if now >= next_send:
         seq += 1
-        cmd = f"C,{seq},0,0,-3600,3600,-3600,3600\n"
+        cmd = f"C,{seq},0,-3600,3600\n"
         ser.write(cmd.encode())
         with lock:
             send_times[seq] = now

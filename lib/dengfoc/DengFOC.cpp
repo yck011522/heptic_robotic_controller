@@ -405,47 +405,33 @@ void DFOC_disable()
 /// @note Must be called before any motor control functions
 /// @note Configures:
 ///   - Motor 0 PWM on channels 0-2 (GPIO 32, 33, 25) at 30kHz
-///   - Motor 1 PWM on channels 3-5 (GPIO 26, 27, 14) at 30kHz
 ///   - I2C bus 0 for encoder S0 (GPIO 19=SDA, 18=SCL)
-///   - I2C bus 1 for encoder S1 (GPIO 23=SDA, 5=SCL)
-///   - Current sensors for both motors
+///   - Current sensor for motor 0
 void DFOC_Vbus(float power_supply)
 {
   voltage_power_supply = power_supply;
 
   // Configure Motor 0 PWM outputs (channels 0-2)
+  // ledcSetup must be called before ledcAttachPin to initialize the channel
   pinMode(M0_pwmA, OUTPUT);
   pinMode(M0_pwmB, OUTPUT);
   pinMode(M0_pwmC, OUTPUT);
-  ledcAttachPin(M0_pwmA, 0);
-  ledcAttachPin(M0_pwmB, 1);
-  ledcAttachPin(M0_pwmC, 2);
   ledcSetup(0, 30000, 8); // 30 kHz PWM, 8-bit resolution
   ledcSetup(1, 30000, 8);
   ledcSetup(2, 30000, 8);
-
-  // Configure Motor 1 PWM outputs (channels 3-5)
-  pinMode(M1_pwmA, OUTPUT);
-  pinMode(M1_pwmB, OUTPUT);
-  pinMode(M1_pwmC, OUTPUT);
-  ledcAttachPin(M1_pwmA, 3);
-  ledcAttachPin(M1_pwmB, 4);
-  ledcAttachPin(M1_pwmC, 5);
-  ledcSetup(3, 30000, 8); // 30 kHz PWM, 8-bit resolution
-  ledcSetup(4, 30000, 8);
-  ledcSetup(5, 30000, 8);
+  ledcAttachPin(M0_pwmA, 0);
+  ledcAttachPin(M0_pwmB, 1);
+  ledcAttachPin(M0_pwmC, 2);
 
   pinMode(enable, OUTPUT);
 
-  // Initialize I2C buses and AS5600 encoders
+  // Initialize I2C bus and AS5600 encoder for motor 0 only
   S0_I2C.begin(19, 18, I2C_CLOCK_HZ);
-  S1_I2C.begin(23, 5, I2C_CLOCK_HZ);
   S0.Sensor_init(&S0_I2C);
-  S1.Sensor_init(&S1_I2C);
+  S0_I2C.setTimeOut(2); // 2 ms I2C timeout (default ~50 ms causes FOC stalls on bus errors)
 
-  // Initialize built-in current sense ADC channels
+  // Initialize built-in current sense ADC for motor 0
   CS_M0.init();
-  CS_M1.init();
 }
 
 // ==================== ANGLE CALCULATION FUNCTIONS ====================
@@ -485,7 +471,7 @@ void DFOC_M0_alignSensor(int _PP, int _DIR)
   M0_DIR = _DIR;
 
   // Apply holding torque at 3pi/2 (270°) to align rotor with known position
-  M0_setTorque(3, _3PI_2);
+  M0_setTorque(1, _3PI_2);
   delay(1000); // Wait for magnetic settling
 
   // Read encoder angle at known rotor position to determine zero offset

@@ -13,13 +13,13 @@
 #   from device_discovery import discover_devices, build_device_map, assign_identity
 #
 #   devices = discover_devices()
-#   # [{"port": "COM3", "fw_version": "0.2.0", "motor_ids": (1, 2)}, ...]
+#   # [{"port": "COM3", "fw_version": "0.2.0", "motor_id": 1}, ...]
 #
 #   device_map = build_device_map()
-#   # {(1, 2): "COM3", (3, 4): "COM5"}
+#   # {1: "COM3", 3: "COM5"}
 #
 #   # One-time provisioning (writes to NVS flash, survives reboot):
-#   assign_identity("COM3", motor_id_0=1, motor_id_1=2)
+#   assign_identity("COM3", motor_id_0=1)
 
 import serial
 import serial.tools.list_ports
@@ -95,7 +95,7 @@ def probe_port(port, baud=BAUD):
     Opens the port, sends a V (version) command and an I (identity) command,
     reads through streaming telemetry to find the responses.
 
-    Returns a dict with keys: port, fw_version, motor_ids (tuple of two ints),
+    Returns a dict with keys: port, fw_version, motor_id (int),
     or None if the port doesn't respond correctly.
     """
     try:
@@ -123,17 +123,15 @@ def probe_port(port, baud=BAUD):
             return None
 
         parts = resp.split(",")
-        if len(parts) >= 4:
+        if len(parts) >= 3:
             motor_id_0 = int(parts[2])
-            motor_id_1 = int(parts[3])
         else:
             motor_id_0 = 0
-            motor_id_1 = 0
 
         return {
             "port": port,
             "fw_version": fw_version,
-            "motor_ids": (motor_id_0, motor_id_1),
+            "motor_id": motor_id_0,
         }
     finally:
         ser.close()
@@ -142,8 +140,8 @@ def probe_port(port, baud=BAUD):
 def discover_devices(baud=BAUD, filter_by_vid_pid=True):
     """Scan all candidate serial ports and return a list of discovered devices.
 
-    Each entry is a dict: {"port": "COMx", "fw_version": "...", "motor_ids": (id0, id1)}
-    Devices with motor_ids (0, 0) have not been provisioned yet.
+    Each entry is a dict: {"port": "COMx", "fw_version": "...", "motor_id": id0}
+    Devices with motor_id 0 have not been provisioned yet.
     """
     candidates = list_candidate_ports(filter_by_vid_pid)
     devices = []
@@ -154,43 +152,43 @@ def discover_devices(baud=BAUD, filter_by_vid_pid=True):
     return devices
 
 
-def assign_identity(port, motor_id_0, motor_id_1, baud=BAUD):
+def assign_identity(port, motor_id_0, baud=BAUD):
     """Write motor identity to a device's NVS flash (persistent across reboots).
 
-    Returns the confirmed (motor_id_0, motor_id_1) tuple read back from the device.
+    Returns the confirmed motor_id_0 read back from the device.
     """
     ser = serial.Serial(port, baud, timeout=0.1)
     try:
         time.sleep(DRAIN_DELAY)
         ser.reset_input_buffer()
-        cmd = f"I,1,{motor_id_0},{motor_id_1}"
+        cmd = f"I,1,{motor_id_0}"
         resp = _send_and_wait(ser, cmd, "I,1,")
         if resp is None:
             raise RuntimeError(f"No response from {port} after identity assignment")
         parts = resp.split(",")
-        if len(parts) >= 4:
-            return (int(parts[2]), int(parts[3]))
+        if len(parts) >= 3:
+            return int(parts[2])
         return None
     finally:
         ser.close()
 
 
 def build_device_map(baud=BAUD):
-    """Discover all devices and return a dict mapping motor_ids tuple -> port name.
+    """Discover all devices and return a dict mapping motor_id -> port name.
 
-    Example return: {(1, 2): "COM3", (3, 4): "COM5"}
+    Example return: {1: "COM3", 3: "COM5"}
     """
     devices = discover_devices(baud)
     device_map = {}
     for dev in devices:
-        ids = dev["motor_ids"]
-        if ids == (0, 0):
-            print(f"  WARNING: Unconfigured device on {dev['port']} (motor_ids=0,0)")
-        if ids in device_map:
+        mid = dev["motor_id"]
+        if mid == 0:
+            print(f"  WARNING: Unconfigured device on {dev['port']} (motor_id=0)")
+        if mid in device_map:
             print(
-                f"  WARNING: Duplicate motor_ids {ids} on {dev['port']} and {device_map[ids]}"
+                f"  WARNING: Duplicate motor_id {mid} on {dev['port']} and {device_map[mid]}"
             )
-        device_map[ids] = dev["port"]
+        device_map[mid] = dev["port"]
     return device_map
 
 
@@ -212,16 +210,16 @@ if __name__ == "__main__":
     if not devices:
         print("  No controllers found.")
     for dev in devices:
-        status = "UNCONFIGURED" if dev["motor_ids"] == (0, 0) else "ok"
+        status = "UNCONFIGURED" if dev["motor_id"] == 0 else "ok"
         print(
             f"  {dev['port']:8s}  fw={dev['fw_version']}  "
-            f"motor_ids={dev['motor_ids']}  [{status}]"
+            f"motor_id={dev['motor_id']}  [{status}]"
         )
 
     print()
-    print("=== Device map (motor_ids -> port) ===")
+    print("=== Device map (motor_id -> port) ===")
     device_map = build_device_map()
     if not device_map:
         print("  (empty)")
-    for ids, port in device_map.items():
-        print(f"  motor_ids={ids} -> {port}")
+    for mid, port in device_map.items():
+        print(f"  motor_id={mid} -> {port}")

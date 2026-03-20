@@ -31,17 +31,14 @@ int motor_pole_pairs = 7; // Motor pole pairs
 // ==================== MOTOR IDENTITY (NVS) ====================
 Preferences nvs_prefs;
 uint8_t motor_id_0 = 0; // Persistent identity for motor 0, 0 = unconfigured
-uint8_t motor_id_1 = 0; // Persistent identity for motor 1, 0 = unconfigured
 
 // ==================== GLOBAL INSTANCES AND CONSTANTS ====================
 
 // Current configuration (easy to modify)
 DialConfig dial_config0;
-DialConfig dial_config1;
 
 // Create per-dial instances (after class definition)
 Dial dial0(0, &dial_config0); // Motor 0 controller
-Dial dial1(1, &dial_config1); // Motor 1 controller
 
 // Serial input buffer for receiving commands from host
 const int SERIAL_BUFFER_SIZE = 128;
@@ -68,10 +65,9 @@ void setup()
   // Initialize serial communication for debugging
   Serial.begin(230400);
 
-  // Load persistent motor identities from NVS
-  nvs_prefs.begin("robot", true); // read-only
+  // Load persistent motor identity from NVS (read-write to create namespace on first boot)
+  nvs_prefs.begin("robot", false);
   motor_id_0 = nvs_prefs.getUChar("motor_id_0", 0);
-  motor_id_1 = nvs_prefs.getUChar("motor_id_1", 0);
   nvs_prefs.end();
 
   // Initialize motor enable pin (GPIO 12)
@@ -81,11 +77,9 @@ void setup()
   // Configure motor driver voltage and align Hall sensors
   DFOC_Vbus(12);                                     // Set driver power supply voltage to 12V
   DFOC_M0_alignSensor(motor_pole_pairs, sensor_dir); // Calibrate motor 0 sensor
-  DFOC_M1_alignSensor(motor_pole_pairs, sensor_dir); // Calibrate motor 1 sensor
 
   // Initialize per-dial state and timers
   dial0.begin();
-  dial1.begin();
 
   // Initialize serial input buffer
   serial_buffer_index = 0;
@@ -120,39 +114,28 @@ void parse_host_command(const char *line)
 
   if (cmd == 'C')
   {
-    // Expect: C,seq,pos0,pos1,min0,max0,min1,max1
-    // pos0,pos1 required, min/max optional (if not provided, bounds are not updated)
-    char *f[8];
+    // Expect: C,seq,pos0[,min0,max0]
+    // pos0 required, min/max optional (if not provided, bounds are not updated)
+    char *f[4];
     int i = 0;
-    while (i < 8 && (f[i] = strtok(NULL, delim)) != NULL)
+    while (i < 4 && (f[i] = strtok(NULL, delim)) != NULL)
       i++;
 
-    if (i >= 2)
+    if (i >= 1)
     {
-      // pos0,pos1 required
       long pos0 = atol(f[0]);
-      long pos1 = atol(f[1]);
 
       // Convert decidegrees -> radians: rad = decideg * pi / 1800.0
       float pos0_rad = (float)pos0 * 3.1415926f / 1800.0f;
-      float pos1_rad = (float)pos1 * 3.1415926f / 1800.0f;
 
       dial_config0.tracking_position = pos0_rad;
-      dial_config1.tracking_position = pos1_rad;
 
-      if (i >= 4)
+      if (i >= 3)
       {
-        long min0 = atol(f[2]);
-        long max0 = atol(f[3]);
+        long min0 = atol(f[1]);
+        long max0 = atol(f[2]);
         dial_config0.bounds_min_angle = (float)min0 * 3.1415926f / 1800.0f;
         dial_config0.bounds_max_angle = (float)max0 * 3.1415926f / 1800.0f;
-      }
-      if (i >= 6)
-      {
-        long min1 = atol(f[4]);
-        long max1 = atol(f[5]);
-        dial_config1.bounds_min_angle = (float)min1 * 3.1415926f / 1800.0f;
-        dial_config1.bounds_max_angle = (float)max1 * 3.1415926f / 1800.0f;
       }
 
       last_processed_seq = seq;
@@ -172,75 +155,41 @@ void parse_host_command(const char *line)
       // Handle common parameter names
       if (strcmp(param, "tracking_kp_0") == 0)
         dial_config0.tracking_kp = fval;
-      else if (strcmp(param, "tracking_kp_1") == 0)
-        dial_config1.tracking_kp = fval;
       else if (strcmp(param, "tracking_kd_0") == 0)
         dial_config0.tracking_kd = fval;
-      else if (strcmp(param, "tracking_kd_1") == 0)
-        dial_config1.tracking_kd = fval;
       else if (strcmp(param, "detent_kp_0") == 0)
         dial_config0.detent_kp = fval;
-      else if (strcmp(param, "detent_kp_1") == 0)
-        dial_config1.detent_kp = fval;
       else if (strcmp(param, "bounds_kp_0") == 0)
         dial_config0.bounds_kp = fval;
-      else if (strcmp(param, "bounds_kp_1") == 0)
-        dial_config1.bounds_kp = fval;
       else if (strcmp(param, "detent_distance_0") == 0)
         dial_config0.detent_distance = fval * 3.1415926f / 1800.0f; // assume value in decideg -> convert to rad
-      else if (strcmp(param, "detent_distance_1") == 0)
-        dial_config1.detent_distance = fval * 3.1415926f / 1800.0f;
       else if (strcmp(param, "vibration_amplitude_0") == 0)
         dial_config0.vibration_amplitude = fval;
-      else if (strcmp(param, "vibration_amplitude_1") == 0)
-        dial_config1.vibration_amplitude = fval;
       else if (strcmp(param, "oob_kick_amplitude_0") == 0)
         dial_config0.oob_kick_amplitude = fval;
-      else if (strcmp(param, "oob_kick_amplitude_1") == 0)
-        dial_config1.oob_kick_amplitude = fval;
       // Max torque limits
       else if (strcmp(param, "tracking_max_torque_0") == 0)
         dial_config0.tracking_max_torque = fval;
-      else if (strcmp(param, "tracking_max_torque_1") == 0)
-        dial_config1.tracking_max_torque = fval;
       else if (strcmp(param, "bounds_max_torque_0") == 0)
         dial_config0.bounds_max_torque = fval;
-      else if (strcmp(param, "bounds_max_torque_1") == 0)
-        dial_config1.bounds_max_torque = fval;
       else if (strcmp(param, "detent_max_torque_0") == 0)
         dial_config0.detent_max_torque = fval;
-      else if (strcmp(param, "detent_max_torque_1") == 0)
-        dial_config1.detent_max_torque = fval;
       // Timing intervals (raw ms, no 1000x scaling)
       else if (strcmp(param, "vibration_pulse_interval_ms_0") == 0)
         dial_config0.vibration_pulse_interval_ms = (unsigned long)v;
-      else if (strcmp(param, "vibration_pulse_interval_ms_1") == 0)
-        dial_config1.vibration_pulse_interval_ms = (unsigned long)v;
       else if (strcmp(param, "oob_kick_pulse_interval_ms_0") == 0)
         dial_config0.oob_kick_pulse_interval_ms = (unsigned long)v;
-      else if (strcmp(param, "oob_kick_pulse_interval_ms_1") == 0)
-        dial_config1.oob_kick_pulse_interval_ms = (unsigned long)v;
       // Mode enable/disable flags (value: 0 = disable, non-zero = enable)
       else if (strcmp(param, "enable_tracking_0") == 0)
         dial_config0.enable_tracking = (v != 0);
-      else if (strcmp(param, "enable_tracking_1") == 0)
-        dial_config1.enable_tracking = (v != 0);
       else if (strcmp(param, "enable_detent_0") == 0)
         dial_config0.enable_detent = (v != 0);
-      else if (strcmp(param, "enable_detent_1") == 0)
-        dial_config1.enable_detent = (v != 0);
       else if (strcmp(param, "enable_bounds_restoration_0") == 0)
         dial_config0.enable_bounds_restoration = (v != 0);
-      else if (strcmp(param, "enable_bounds_restoration_1") == 0)
-        dial_config1.enable_bounds_restoration = (v != 0);
       else if (strcmp(param, "enable_oob_kick_0") == 0)
         dial_config0.enable_oob_kick = (v != 0);
-      else if (strcmp(param, "enable_oob_kick_1") == 0)
-        dial_config1.enable_oob_kick = (v != 0);
       else if (strcmp(param, "enable_vibration_0") == 0)
         dial_config0.enable_vibration = (v != 0);
-      else if (strcmp(param, "enable_vibration_1") == 0)
-        dial_config1.enable_vibration = (v != 0);
       else if (strcmp(param, "telemetry_interval") == 0)
         telemetry_interval_ms = (unsigned long)v; // value in ms (no 1000x scaling)
       // Unknown parameters are ignored
@@ -252,26 +201,21 @@ void parse_host_command(const char *line)
   }
   else if (cmd == 'I')
   {
-    // Identity command, host send: I,seq,<id0>,<id1>\n to set, I,seq\n to query
-    // Respond with "I,seq,<motor_id_0>,<motor_id_1>\n"
+    // Identity command, host send: I,seq,<id0>\n to set, I,seq\n to query
+    // Respond with "I,seq,<motor_id_0>\n"
     char *id0str = strtok(NULL, delim);
-    char *id1str = strtok(NULL, delim);
-    if (id0str && id1str)
+    if (id0str)
     {
       motor_id_0 = (uint8_t)atoi(id0str);
-      motor_id_1 = (uint8_t)atoi(id1str);
       nvs_prefs.begin("robot", false); // read-write
       nvs_prefs.putUChar("motor_id_0", motor_id_0);
-      nvs_prefs.putUChar("motor_id_1", motor_id_1);
       nvs_prefs.end();
     }
-    // Respond with current motor identities
+    // Respond with current motor identity
     Serial.print("I,");
     Serial.print(seq);
     Serial.print(",");
-    Serial.print(motor_id_0);
-    Serial.print(",");
-    Serial.println(motor_id_1);
+    Serial.println(motor_id_0);
   }
   else if (cmd == 'V')
   {
@@ -293,7 +237,6 @@ void process_serial_input()
 {
   // Non-blocking serial input processing
   // Reads available bytes and buffers them until newline is received
-  // Format: "M0C:value,M1C:value\n"
 
   while (Serial.available() > 0)
   {
@@ -338,16 +281,10 @@ void loop()
   process_serial_input();
 
   // ==================== FOC & MOTOR CONTROL ====================
-  // Read both sensors in parallel (S0 on Core 1, S1 on Core 0)
-  FOC_read_encoder_both();
+  runFOC_M0();
 
-  // Removed current read because we are not current control for better stability.
-  if (USE_CURRENT_CONTROL)  FOC_read_current_both();
-
-  // Calculate all enabled torque effects and apply to motors
-  // Current control is off for better stability.
+  // Calculate all enabled torque effects and apply to motor
   dial0.calculate_and_apply_composite_torque(USE_CURRENT_CONTROL);
-  dial1.calculate_and_apply_composite_torque(USE_CURRENT_CONTROL);
 
   // ==================== FOC RATE MEASUREMENT ====================
   // Measure FOC rate over independent measurement window (decoupled from telemetry interval)
@@ -359,49 +296,34 @@ void loop()
   }
 
   // ==================== TELEMETRY TRANSMISSION (DengFOC V4 protocol) ====================
-  // Transmit at configured telemetry interval: T,seq,ang0,ang1,tor0,tor1\n
+  // Transmit at configured telemetry interval: T,id,seq,ang0,spd0,tor0,foc_rate\n
   if (current_time - last_telemetry_time >= telemetry_interval_ms)
   {
     // Angle: radians -> decidegrees (0.1 deg per unit)
     float ang0_deg = dial0.last_angle * 180.0f / 3.1415926f;
-    float ang1_deg = dial1.last_angle * 180.0f / 3.1415926f;
     float ang0_decideg_f = ang0_deg * 10.0f;
-    float ang1_decideg_f = ang1_deg * 10.0f;
 
     long ang0_decideg = (long)(ang0_decideg_f > 0 ? ang0_decideg_f + 0.5f : ang0_decideg_f - 0.5f);
-    long ang1_decideg = (long)(ang1_decideg_f > 0 ? ang1_decideg_f + 0.5f : ang1_decideg_f - 0.5f);
 
     // Clamp to ±MAX_ANGLE_DECIDEG
     if (ang0_decideg > MAX_ANGLE_DECIDEG)
       ang0_decideg = MAX_ANGLE_DECIDEG;
     else if (ang0_decideg < -MAX_ANGLE_DECIDEG)
       ang0_decideg = -MAX_ANGLE_DECIDEG;
-    if (ang1_decideg > MAX_ANGLE_DECIDEG)
-      ang1_decideg = MAX_ANGLE_DECIDEG;
-    else if (ang1_decideg < -MAX_ANGLE_DECIDEG)
-      ang1_decideg = -MAX_ANGLE_DECIDEG;
 
     // Torque: amps -> milliamps
     float tor0_ma_f = dial0.last_torque * 1000.0f;
-    float tor1_ma_f = dial1.last_torque * 1000.0f;
     long tor0_ma = (long)(tor0_ma_f > 0 ? tor0_ma_f + 0.5f : tor0_ma_f - 0.5f);
-    long tor1_ma = (long)(tor1_ma_f > 0 ? tor1_ma_f + 0.5f : tor1_ma_f - 0.5f);
 
     // Clamp torque to ±10000 mA
     if (tor0_ma > 10000)
       tor0_ma = 10000;
     else if (tor0_ma < -10000)
       tor0_ma = -10000;
-    if (tor1_ma > 10000)
-      tor1_ma = 10000;
-    else if (tor1_ma < -10000)
-      tor1_ma = -10000;
 
     // Speed: rad/s -> decidegrees/s (0.1 deg/s per unit)
     float spd0_decideg_f = dial0.last_speed * 1800.0f / 3.1415926f;
-    float spd1_decideg_f = dial1.last_speed * 1800.0f / 3.1415926f;
     long spd0_decideg = (long)(spd0_decideg_f > 0 ? spd0_decideg_f + 0.5f : spd0_decideg_f - 0.5f);
-    long spd1_decideg = (long)(spd1_decideg_f > 0 ? spd1_decideg_f + 0.5f : spd1_decideg_f - 0.5f);
 
     // Compute FOC rate (int Hz) and clamp to allowed range
     long foc_rate_hz = (long)(last_foc_rate_hz + 0.5f);
@@ -410,25 +332,17 @@ void loop()
     if (foc_rate_hz > 2000)
       foc_rate_hz = 2000;
 
-    // Emit: T,motor_id_0,motor_id_1,seq,ang0,ang1,spd0,spd1,tor0,tor1,foc_rate\n
+    // Emit: T,motor_id_0,seq,ang0,spd0,tor0,foc_rate\n
     Serial.print("T,");
     Serial.print(motor_id_0);
-    Serial.print(",");
-    Serial.print(motor_id_1);
     Serial.print(",");
     Serial.print(last_processed_seq);
     Serial.print(",");
     Serial.print(ang0_decideg);
     Serial.print(",");
-    Serial.print(ang1_decideg);
-    Serial.print(",");
     Serial.print(spd0_decideg);
     Serial.print(",");
-    Serial.print(spd1_decideg);
-    Serial.print(",");
     Serial.print(tor0_ma);
-    Serial.print(",");
-    Serial.print(tor1_ma);
     Serial.print(",");
     Serial.print(foc_rate_hz);
     Serial.println();

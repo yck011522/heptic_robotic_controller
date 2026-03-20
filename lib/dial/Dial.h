@@ -25,16 +25,16 @@ struct DialConfig
 
     // Tracking position parameters
     float tracking_position = 0.0;   // Target position to track towards (radians)
-    float tracking_kp = 0.2;         // Proportional gain for position tracking
+    float tracking_kp = 0.8;         // Proportional gain for position tracking
     float tracking_kd = 0.005;         // Derivative gain for position tracking (damping)
-    float tracking_max_torque = 1.0; // Maximum absolute torque magnitude (A)
+    float tracking_max_torque = 2.0; // Maximum absolute torque magnitude (A)
 
     // Vibration/debug parameters
     float vibration_amplitude = 0.3;                  // Amplitude of vibration test pulse (A)
     unsigned long vibration_pulse_interval_ms = 1000; // Interval between vibration pulses (ms)
 
     // Out-of-bounds (OOB) kicking mode
-    float oob_kick_amplitude = 0.3;                // Amplitude of OOB kick (A)
+    float oob_kick_amplitude = 1.5;                // Amplitude of OOB kick (A)
     unsigned long oob_kick_pulse_interval_ms = 40; // Interval between OOB kicks (ms)
 };
 

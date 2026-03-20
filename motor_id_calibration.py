@@ -5,8 +5,8 @@
 # time. Detects which device/motor was moved by monitoring telemetry angle changes,
 # and writes the correct motor IDs to each controller's NVS flash.
 #
-# Telemetry format: T,motor_id_0,motor_id_1,seq,ang0,ang1,tor0,tor1,fps
-#   ang0 is at index 4, ang1 is at index 5 (decidegrees)
+# Telemetry format: T,motor_id_0,seq,ang0,spd0,tor0,foc_rate
+#   ang0 is at index 3 (decidegrees)
 
 import serial
 import time
@@ -38,7 +38,6 @@ class DeviceMonitor:
 
         # Tracking: min/max angle seen during a detection window
         self.ang0_values = []
-        self.ang1_values = []
         self.lock = threading.Lock()
         self._buf = ""
 
@@ -46,7 +45,6 @@ class DeviceMonitor:
         """Clear recorded angles to start a new detection window."""
         with self.lock:
             self.ang0_values.clear()
-            self.ang1_values.clear()
 
     def read_telemetry(self):
         """Non-blocking read. Parses any complete telemetry lines and records angles."""
@@ -62,18 +60,16 @@ class DeviceMonitor:
             line = line.strip()
             if line.startswith("T,"):
                 parts = line.split(",")
-                if len(parts) >= 6:
+                if len(parts) >= 4:
                     try:
-                        ang0 = int(parts[4])
-                        ang1 = int(parts[5])
+                        ang0 = int(parts[3])
                         with self.lock:
                             self.ang0_values.append(ang0)
-                            self.ang1_values.append(ang1)
                     except ValueError:
                         pass
 
     def get_motion(self):
-        """Return (ang0_range, ang1_range) — how much each motor moved."""
+        """Return ang0_range — how much the motor moved."""
         with self.lock:
 
             def value_range(vals):
@@ -81,7 +77,7 @@ class DeviceMonitor:
                     return 0
                 return max(vals) - min(vals)
 
-            return value_range(self.ang0_values), value_range(self.ang1_values)
+            return value_range(self.ang0_values)
 
     def close(self):
         try:
@@ -111,9 +107,9 @@ def open_all_controllers(baud=BAUD):
 def detect_motion(monitors, duration=MOTION_DETECT_WINDOW):
     """Monitor all devices for `duration` seconds and return which moved.
 
-    Returns (best_monitor, motor_index, motion_amount) where motor_index is
-    0 or 1 indicating which motor on that device was moved.
-    Returns (None, None, 0) if no significant motion was detected.
+    Returns (best_monitor, motion_amount) where best_monitor is the
+    DeviceMonitor whose motor moved the most.
+    Returns (None, 0) if no significant motion was detected.
     """
     # Reset all tracking
     for mon in monitors:
@@ -125,26 +121,20 @@ def detect_motion(monitors, duration=MOTION_DETECT_WINDOW):
             mon.read_telemetry()
         time.sleep(0.005)  # ~200 Hz polling, plenty fast for 50 Hz telemetry
 
-    # Find the device/motor with the most movement
+    # Find the device with the most movement
     best_monitor = None
-    best_motor = None
     best_motion = 0
 
     for mon in monitors:
-        ang0_range, ang1_range = mon.get_motion()
+        ang0_range = mon.get_motion()
         if ang0_range > best_motion:
             best_motion = ang0_range
             best_monitor = mon
-            best_motor = 0
-        if ang1_range > best_motion:
-            best_motion = ang1_range
-            best_monitor = mon
-            best_motor = 1
 
     if best_motion < MOTION_THRESHOLD:
-        return None, None, 0
+        return None, 0
 
-    return best_monitor, best_motor, best_motion
+    return best_monitor, best_motion
 
 
 def run_calibration(starting_motor_id=11):
@@ -165,15 +155,15 @@ def run_calibration(starting_motor_id=11):
         print("No controllers found. Check USB connections.")
         return
 
-    total_motors = len(monitors) * 2
+    total_motors = len(monitors)
     motor_ids = list(range(starting_motor_id, starting_motor_id + total_motors))
-    print(f"\nFound {len(monitors)} controller(s) = {total_motors} motors total.")
+    print(f"\nFound {len(monitors)} controller(s) = {total_motors} motor(s) total.")
     print(f"Motor IDs to assign: {motor_ids}")
     print(f"We will identify each motor one at a time.\n")
 
-    # Track assignments: monitor -> [id_for_motor0, id_for_motor1]
-    assignments = {mon.port: [None, None] for mon in monitors}
-    identified_motors = set()  # (port, motor_index) pairs already identified
+    # Track assignments: monitor -> assigned motor_id
+    assignments = {mon.port: None for mon in monitors}
+    identified_ports = set()  # ports already identified
 
     for i, motor_id in enumerate(motor_ids):
         while True:
@@ -183,7 +173,7 @@ def run_calibration(starting_motor_id=11):
             )
             print(f"    Watching for motion ({MOTION_DETECT_WINDOW}s)...")
 
-            mon, motor_idx, motion = detect_motion(monitors)
+            mon, motion = detect_motion(monitors)
 
             if mon is None:
                 print(
@@ -191,21 +181,20 @@ def run_calibration(starting_motor_id=11):
                 )
                 continue
 
-            key = (mon.port, motor_idx)
-            if key in identified_motors:
-                prev_id = assignments[mon.port][motor_idx]
+            if mon.port in identified_ports:
+                prev_id = assignments[mon.port]
                 print(
-                    f"    Detected {mon.port} motor_{motor_idx}, but that was already "
+                    f"    Detected {mon.port}, but that was already "
                     f"assigned as motor #{prev_id}. Try a different motor."
                 )
                 continue
 
             print(
-                f"    Detected: {mon.port} motor_{motor_idx} "
+                f"    Detected: {mon.port} "
                 f"(moved {motion} decideg = {motion/10:.1f} deg)"
             )
-            assignments[mon.port][motor_idx] = motor_id
-            identified_motors.add(key)
+            assignments[mon.port] = motor_id
+            identified_ports.add(mon.port)
             break
 
     # Summary
@@ -214,8 +203,8 @@ def run_calibration(starting_motor_id=11):
     print("  Calibration Results")
     print("=" * 60)
     for mon in monitors:
-        id0, id1 = assignments[mon.port]
-        print(f"  {mon.port}: motor_0 = #{id0}, motor_1 = #{id1}")
+        mid = assignments[mon.port]
+        print(f"  {mon.port}: motor_id = #{mid}")
 
     # Confirm before writing
     print()
@@ -232,10 +221,9 @@ def run_calibration(starting_motor_id=11):
 
     # Write identities
     print()
-    for port, ids in assignments.items():
-        id0, id1 = ids
-        confirmed = assign_identity(port, id0, id1)
-        print(f"  {port}: wrote ({id0}, {id1}), confirmed = {confirmed}")
+    for port, mid in assignments.items():
+        confirmed = assign_identity(port, mid)
+        print(f"  {port}: wrote {mid}, confirmed = {confirmed}")
 
     print("\nDone! Motor IDs are saved to flash and will persist across reboots.")
 

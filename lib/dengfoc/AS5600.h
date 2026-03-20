@@ -22,5 +22,6 @@ private:
   long vel_angle_prev_ts = 0;     // 最后速度计算时间戳
   int32_t full_rotations = 0;     // 总圈数计数
   int32_t vel_full_rotations = 0; // 用于速度计算的先前完整旋转圈数
+  float last_valid_angle = 0;     // Last successful sensor reading (returned on I2C error)
   TwoWire *wire;
 };

@@ -5,7 +5,7 @@
 **Line format:** ASCII, comma-separated fields, terminated by `\n` (newline). `\r` is ignored.
 **Max line length:** 127 bytes (excluding newline).
 
-Each ESP32 board drives **two motors** (motor 0 and motor 1). Motors are identified by persistent IDs stored in NVS flash.
+Each ESP32 board drives **one motor** (motor 0). The motor is identified by a persistent ID stored in NVS flash.
 
 ---
 
@@ -57,22 +57,19 @@ The `seq` field is a uint32 sequence number chosen by the host. The controller e
 
 ### 3.1 `C` — Control (Position Update)
 
-Sends target positions and optional angle bounds for both motors. This is the **primary real-time command** sent every control cycle.
+Sends target position and optional angle bounds for the motor. This is the **primary real-time command** sent every control cycle.
 
 **Format:**
 ```
-C,<seq>,<pos0>,<pos1>[,<min0>,<max0>[,<min1>,<max1>]]\n
+C,<seq>,<pos0>[,<min0>,<max0>]\n
 ```
 
 | Field  | Type   | Required | Description |
 |--------|--------|----------|-------------|
 | seq    | uint32 | Yes | Sequence number |
 | pos0   | long   | Yes | Target position for motor 0 (decidegrees) |
-| pos1   | long   | Yes | Target position for motor 1 (decidegrees) |
 | min0   | long   | No  | Lower angle bound for motor 0 (decidegrees) |
 | max0   | long   | No  | Upper angle bound for motor 0 (decidegrees) |
-| min1   | long   | No  | Lower angle bound for motor 1 (decidegrees) |
-| max1   | long   | No  | Upper angle bound for motor 1 (decidegrees) |
 
 **Response:** None (acknowledged implicitly via telemetry seq echo).
 
@@ -80,8 +77,8 @@ C,<seq>,<pos0>,<pos1>[,<min0>,<max0>[,<min1>,<max1>]]\n
 
 **Example:**
 ```
-C,42,1800,-900\n          → Set motor 0 to +180.0°, motor 1 to -90.0°
-C,43,1800,-900,-3600,3600,-1800,1800\n  → Same positions, motor 0 bounds ±360°, motor 1 bounds ±180°
+C,42,1800\n                       → Set motor 0 to +180.0°
+C,43,1800,-3600,3600\n            → Same position, motor 0 bounds ±360°
 ```
 
 ### 3.2 `S` — Set Parameter
@@ -113,39 +110,22 @@ Most parameter values use **×1000 fixed-point** encoding: send `5000` to set a 
 | Parameter name          | Unit (wire)       | Description | Default (float) |
 |-------------------------|-------------------|-------------|------------------|
 | `tracking_kp_0`         | ×1000             | Tracking proportional gain, motor 0 | 5.0 |
-| `tracking_kp_1`         | ×1000             | Tracking proportional gain, motor 1 | 5.0 |
 | `tracking_kd_0`         | ×1000             | Tracking derivative gain (damping), motor 0 | 0.1 |
-| `tracking_kd_1`         | ×1000             | Tracking derivative gain (damping), motor 1 | 0.1 |
 | `detent_kp_0`           | ×1000             | Detent spring gain, motor 0 | 5.0 |
-| `detent_kp_1`           | ×1000             | Detent spring gain, motor 1 | 5.0 |
 | `bounds_kp_0`           | ×1000             | Bounds restoration gain, motor 0 | 20.0 |
-| `bounds_kp_1`           | ×1000             | Bounds restoration gain, motor 1 | 20.0 |
 | `detent_distance_0`     | ×1000 (decideg)   | Detent spacing, motor 0. Converted: `(val/1000) × π/1800` rad | ~10° |
-| `detent_distance_1`     | ×1000 (decideg)   | Detent spacing, motor 1 | ~10° |
 | `vibration_amplitude_0` | ×1000             | Vibration pulse amplitude (A), motor 0 | 1.0 |
-| `vibration_amplitude_1` | ×1000             | Vibration pulse amplitude (A), motor 1 | 1.0 |
 | `oob_kick_amplitude_0`  | ×1000             | Out-of-bounds kick amplitude (A), motor 0 | 1.0 |
-| `oob_kick_amplitude_1`  | ×1000             | Out-of-bounds kick amplitude (A), motor 1 | 1.0 |
 | `tracking_max_torque_0` | ×1000             | Max tracking torque (A), motor 0 | 2.0 |
-| `tracking_max_torque_1` | ×1000             | Max tracking torque (A), motor 1 | 2.0 |
 | `bounds_max_torque_0`   | ×1000             | Max bounds restoration torque (A), motor 0 | 3.0 |
-| `bounds_max_torque_1`   | ×1000             | Max bounds restoration torque (A), motor 1 | 3.0 |
 | `detent_max_torque_0`   | ×1000             | Max detent torque (A), motor 0 | 1.0 |
-| `detent_max_torque_1`   | ×1000             | Max detent torque (A), motor 1 | 1.0 |
 | `vibration_pulse_interval_ms_0` | Milliseconds (raw, no ×1000) | Vibration pulse interval, motor 0 | 1000 ms |
-| `vibration_pulse_interval_ms_1` | Milliseconds (raw, no ×1000) | Vibration pulse interval, motor 1 | 1000 ms |
 | `oob_kick_pulse_interval_ms_0`  | Milliseconds (raw, no ×1000) | OOB kick pulse interval, motor 0 | 40 ms |
-| `oob_kick_pulse_interval_ms_1`  | Milliseconds (raw, no ×1000) | OOB kick pulse interval, motor 1 | 40 ms |
 | `enable_tracking_0`     | 0 or 1            | Enable position tracking, motor 0 | 1 (enabled) |
-| `enable_tracking_1`     | 0 or 1            | Enable position tracking, motor 1 | 1 (enabled) |
 | `enable_detent_0`       | 0 or 1            | Enable detent mode, motor 0 | 0 (disabled) |
-| `enable_detent_1`       | 0 or 1            | Enable detent mode, motor 1 | 0 (disabled) |
 | `enable_bounds_restoration_0` | 0 or 1      | Enable bounds restoration, motor 0 | 1 (enabled) |
-| `enable_bounds_restoration_1` | 0 or 1      | Enable bounds restoration, motor 1 | 1 (enabled) |
 | `enable_oob_kick_0`     | 0 or 1            | Enable OOB kick, motor 0 | 1 (enabled) |
-| `enable_oob_kick_1`     | 0 or 1            | Enable OOB kick, motor 1 | 1 (enabled) |
 | `enable_vibration_0`    | 0 or 1            | Enable vibration mode, motor 0 | 0 (disabled) |
-| `enable_vibration_1`    | 0 or 1            | Enable vibration mode, motor 1 | 0 (disabled) |
 | `telemetry_interval`    | Milliseconds (raw, no ×1000) | Telemetry reporting period | 20 ms (50 Hz) |
 
 Unknown parameter names are silently ignored.
@@ -158,7 +138,7 @@ S,101,telemetry_interval,10\n → Set telemetry to 100 Hz (10 ms)
 
 ### 3.3 `I` — Identity (Get/Set Motor IDs)
 
-Reads or writes the persistent motor identity stored in NVS flash. Motor IDs survive reboots and are included in every telemetry frame, allowing the host to map physical devices to logical motor numbers.
+Reads or writes the persistent motor identity stored in NVS flash. The motor ID survives reboots and is included in every telemetry frame, allowing the host to map physical devices to logical motor numbers.
 
 **Query format:**
 ```
@@ -167,26 +147,25 @@ I,<seq>\n
 
 **Set format:**
 ```
-I,<seq>,<id0>,<id1>\n
+I,<seq>,<id0>\n
 ```
 
 | Field | Type   | Description |
 |-------|--------|-------------|
 | seq   | uint32 | Sequence number |
 | id0   | uint8  | Identity for motor 0 (0 = unconfigured, 1–255 = assigned) |
-| id1   | uint8  | Identity for motor 1 (0 = unconfigured, 1–255 = assigned) |
 
 **Response (both query and set):**
 ```
-I,<seq>,<motor_id_0>,<motor_id_1>\n
+I,<seq>,<motor_id_0>\n
 ```
 
 **Timing:** On-demand. Typically used once during initial provisioning or device discovery.
 
 **Example:**
 ```
-I,1\n             → Query current IDs. Response: I,1,3,4
-I,2,5,6\n        → Set motor 0 to ID 5, motor 1 to ID 6. Response: I,2,5,6
+I,1\n             → Query current ID. Response: I,1,3
+I,2,5\n           → Set motor 0 to ID 5. Response: I,2,5
 ```
 
 ### 3.4 `V` — Version Query
@@ -234,27 +213,23 @@ The controller emits telemetry frames autonomously at a configurable interval (d
 
 **Format:**
 ```
-T,<motor_id_0>,<motor_id_1>,<seq>,<ang0>,<ang1>,<spd0>,<spd1>,<tor0>,<tor1>,<foc_rate>\n
+T,<motor_id_0>,<seq>,<ang0>,<spd0>,<tor0>,<foc_rate>\n
 ```
 
 | Field      | Type   | Description |
 |------------|--------|-------------|
 | motor_id_0 | uint8  | Persistent identity of motor 0 |
-| motor_id_1 | uint8  | Persistent identity of motor 1 |
 | seq        | uint32 | Sequence number of the last processed `C` command (0 if none received) |
 | ang0       | long   | Current angle of motor 0 (decidegrees) |
-| ang1       | long   | Current angle of motor 1 (decidegrees) |
 | spd0       | long   | Current speed of motor 0 (decidegrees/s) |
-| spd1       | long   | Current speed of motor 1 (decidegrees/s) |
 | tor0       | long   | Current applied torque on motor 0 (milliamps) |
-| tor1       | long   | Current applied torque on motor 1 (milliamps) |
 | foc_rate   | long   | FOC loop rate (Hz), measured over 200 ms windows. Range: 0–2000 |
 
 **Example:**
 ```
-T,3,4,42,1805,-892,500,-300,150,-200,1100
+T,3,42,1805,500,150,1100
 ```
-Interpretation: Motor IDs 3 and 4, last host seq 42, motor 0 at 180.5° moving at 50.0°/s, motor 1 at −89.2° moving at −30.0°/s, torques 0.15 A and −0.20 A, FOC running at 1100 Hz.
+Interpretation: Motor ID 3, last host seq 42, motor 0 at 180.5° moving at 50.0°/s, torque 0.15 A, FOC running at 1100 Hz.
 
 ---
 
@@ -264,26 +239,26 @@ Interpretation: Motor IDs 3 and 4, last host seq 42, motor 0 at 180.5° moving a
 Host                                Controller
  │                                      │
  │  (open serial port)                  │
- │                                      │──── T,0,0,0,0,0,0,0,0,0,1100   (auto-streaming)
- │                                      │──── T,0,0,0,5,−3,0,0,0,0,1100
+ │                                      │──── T,0,0,0,0,0,1100   (auto-streaming)
+ │                                      │──── T,0,0,5,0,0,1100
  │                                      │
  │── V,1                               │     (version query)
  │                                      │──── V,1,0.2.0
  │                                      │
- │── I,2                               │     (read motor IDs)
- │                                      │──── I,2,0,0                (unconfigured)
+ │── I,2                               │     (read motor ID)
+ │                                      │──── I,2,0                  (unconfigured)
  │                                      │
- │── I,3,1,2                           │     (assign IDs 1 and 2, only if needed)
- │                                      │──── I,3,1,2
+ │── I,3,1                             │     (assign ID 1, only if needed)
+ │                                      │──── I,3,1
  │                                      │
  │── S,10,telemetry_interval,20        │     (confirm 50 Hz telemetry, only if needed)
  │                                      │──── S,10
  │                                      │
  │  ┌─ 50 Hz control loop ────────┐    │
- │  │ C,100,0,0,-3600,3600,-3600,3600  │     (set positions + bounds)
- │  │                              │    │──── T,1,2,100,2,-1,10,-5,50,-30,1100
- │  │ C,101,100,50                 │    │
- │  │                              │    │──── T,1,2,101,98,48,200,100,120,-80,1100
+ │  │ C,100,0,-3600,3600           │    │     (set position + bounds)
+ │  │                              │    │──── T,1,100,2,10,50,1100
+ │  │ C,101,100                    │    │
+ │  │                              │    │──── T,1,101,98,200,120,1100
  │  │ ...                          │    │
  │  └──────────────────────────────┘    │
 ```
@@ -306,8 +281,8 @@ When multiple ESP32 controllers are connected via USB:
 1. **Enumerate** all serial ports matching known VID/PID pairs (see Section 1).
 2. **Probe** each port by sending `V,<seq>\n` and waiting for `V,<seq>,<version>\n` (timeout ~1.5 s). Filter through any telemetry `T,...` lines that arrive first.
 3. **Read identity** with `I,<seq>\n` to get the motor IDs assigned to each board.
-4. **Build a device map:** `{(motor_id_0, motor_id_1): "COMx", ...}` so the host can address motors by logical ID.
-5. **Assign identity** (one-time provisioning): Use the `motor_id_calibration.py` tool or send `I,<seq>,<id0>,<id1>\n` to write persistent IDs. The calibration tool detects which motor is which by monitoring telemetry angle changes while the user physically moves each motor.
+4. **Build a device map:** `{motor_id_0: "COMx", ...}` so the host can address motors by logical ID.
+5. **Assign identity** (one-time provisioning): Use the `motor_id_calibration.py` tool or send `I,<seq>,<id0>\n` to write a persistent ID. The calibration tool detects which motor is which by monitoring telemetry angle changes while the user physically moves each motor.
 
 ---
 

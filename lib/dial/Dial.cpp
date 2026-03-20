@@ -74,6 +74,9 @@ float Dial::calculate_oob_kick_torque(unsigned long now)
     // Determine direction: negative if above max, positive if below min
     float sign = (last_angle > cfg->bounds_max_angle) ? -1.0f : 1.0f;
 
+    // Flip sign
+    sign = -sign;
+
     // Apply pulsed kick at configured interval
     if (now - last_kick_time_local >= cfg->oob_kick_pulse_interval_ms)
     {
