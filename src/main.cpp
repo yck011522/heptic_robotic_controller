@@ -17,7 +17,7 @@
 
 // ==================== MOTOR CONFIGURATION ====================
 int sensor_dir = 1;       // Sensor direction, reverse this value if motor operation is abnormal
-int motor_pole_pairs = 7; // Motor pole pairs
+int motor_pole_pairs = 14; // Motor pole pairs
 
 // ==================== ANGLE LIMITS ====================
 #define MAX_ANGLE_TURNS 30                          // Maximum angle in full rotations (decidegrees = turns * 36000)
