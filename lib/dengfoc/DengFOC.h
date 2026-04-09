@@ -19,8 +19,8 @@ float M1_setTorque(float Uq, float angle_el);
 void DFOC_enable();
 void DFOC_disable();
 void DFOC_Vbus(float power_supply);
-void DFOC_M0_alignSensor(int _PP, int _DIR);
-void DFOC_M1_alignSensor(int _PP, int _DIR);
+void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque = 3.0f, float ramp_rate = 1.0f);
+void DFOC_M1_alignSensor(int _PP, int _DIR, float alignment_torque = 3.0f, float ramp_rate = 1.0f);
 float M0_electricalAngle();
 float M1_electricalAngle();
 

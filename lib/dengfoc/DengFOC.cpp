@@ -463,15 +463,24 @@ float M1_electricalAngle()
 /// MUST be called during initialization with unloaded motor
 /// @param _PP Number of pole pairs for this motor
 /// @param _DIR Rotation direction: 1=CCW, -1=CW
+/// @param alignment_torque Torque to apply during alignment (default: 3.0 Nm)
 /// @note Blocks for 1 second during alignment. Motor will experience brief torque pulse
-void DFOC_M0_alignSensor(int _PP, int _DIR)
+void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_rate)
 {
   // Configure motor parameters
   M0_PP = _PP;
   M0_DIR = _DIR;
 
   // Apply holding torque at 3pi/2 (270°) to align rotor with known position
-  M0_setTorque(1, _3PI_2);
+  // Gradual ramp to holding torque to prevent mechanical shock
+  // Step increment = ramp_rate (torque/s) × 0.1s (100ms per step)
+  float step = fmaxf(ramp_rate * 0.1f, 0.001f);
+  for (float t = 0; t <= alignment_torque; t += step) {
+    M0_setTorque(t, _3PI_2);
+    delay(100);
+  }
+
+  M0_setTorque(alignment_torque, _3PI_2);
   delay(1000); // Wait for magnetic settling
 
   // Read encoder angle at known rotor position to determine zero offset
@@ -488,14 +497,22 @@ void DFOC_M0_alignSensor(int _PP, int _DIR)
 /// @param _PP Number of pole pairs for this motor
 /// @param _DIR Rotation direction: 1=CCW, -1=CW
 /// @note Blocks for 1 second during alignment. Motor will experience brief torque pulse
-void DFOC_M1_alignSensor(int _PP, int _DIR)
+void DFOC_M1_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_rate)
 {
   // Configure motor parameters
   M1_PP = _PP;
   M1_DIR = _DIR;
 
   // Apply holding torque at 3pi/2 (270°) to align rotor with known position
-  M1_setTorque(3, _3PI_2);
+  // Gradual ramp to holding torque to prevent mechanical shock
+  // Step increment = ramp_rate (torque/s) × 0.1s (100ms per step)
+  float step = fmaxf(ramp_rate * 0.1f, 0.001f);
+  for (float t = 0; t <= alignment_torque; t += step) {
+    M1_setTorque(t, _3PI_2);
+    delay(100);
+  }
+
+  M1_setTorque(alignment_torque, _3PI_2);
   delay(1000); // Wait for magnetic settling
 
   // Read encoder angle at known rotor position to determine zero offset
