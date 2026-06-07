@@ -17,7 +17,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Stream C commands for a fixed duration and verify seq progress and telemetry continuity.")
     add_common_arguments(parser)
     parser.add_argument("--duration", type=float, default=10.0, help="Test duration in seconds")
-    parser.add_argument("--rate-hz", type=float, default=50.0, help="Control send rate")
+    parser.add_argument("--rate-hz", type=float, default=100.0, help="Control send rate")
     parser.add_argument("--min-final-seq", type=int, default=20, help="Minimum expected final echoed seq")
     args = parser.parse_args()
     port = resolve_test_port(args.port, args.baud, args.device_id)

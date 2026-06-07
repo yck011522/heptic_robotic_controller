@@ -22,9 +22,9 @@ def main() -> None:
     add_common_arguments(parser)
     parser.add_argument("--duration", type=float, default=20.0, help="Test duration in seconds")
     parser.add_argument("--control-hz", type=float, default=50.0, help="Host-side command rate")
-    parser.add_argument("--period", type=float, default=20.0, help="Seconds per sine cycle")
-    parser.add_argument("--min-angle", type=int, default=-108000, help="Minimum target angle in decidegrees")
-    parser.add_argument("--max-angle", type=int, default=108000, help="Maximum target angle in decidegrees")
+    parser.add_argument("--period", type=float, default=5.0, help="Seconds per sine cycle")
+    parser.add_argument("--min-angle", type=int, default=-10800, help="Minimum target angle in decidegrees")
+    parser.add_argument("--max-angle", type=int, default=10800, help="Maximum target angle in decidegrees")
     parser.add_argument("--amplitude-scale", type=float, default=0.5, help="Fraction of the full range used as sine amplitude")
     args = parser.parse_args()
 
