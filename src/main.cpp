@@ -20,6 +20,7 @@
 // ==================== MOTOR CONFIGURATION ====================
 int sensor_dir = 1;       // Sensor direction, reverse this value if motor operation is abnormal
 int motor_pole_pairs = 14; // Motor pole pairs
+float startup_alignment_torque = 9.0f; // Startup sensor-alignment torque
 
 // ==================== ANGLE LIMITS ====================
 #define MAX_ANGLE_TURNS 30                          // Maximum angle in full rotations (decidegrees = turns * 36000)
@@ -226,8 +227,8 @@ void setup()
   digitalWrite(12, HIGH); // Motor Enable, must be placed before motor calibration
 
   // Configure motor driver voltage and align Hall sensors
-  DFOC_Vbus(12);                                     // Set driver power supply voltage to 12V
-  DFOC_M0_alignSensor(motor_pole_pairs, sensor_dir); // Calibrate motor 0 sensor
+  DFOC_Vbus(12);                                                             // Set driver power supply voltage to 12V
+  DFOC_M0_alignSensor(motor_pole_pairs, sensor_dir, startup_alignment_torque); // Calibrate motor 0 sensor
 
   // Initialize per-dial state and timers
   dial0.begin();

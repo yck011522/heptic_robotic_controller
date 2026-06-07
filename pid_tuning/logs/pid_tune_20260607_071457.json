@@ -1,0 +1,1126 @@
+{
+  "run_id": "pid_tune_20260607_071457",
+  "started_utc": "2026-06-07T07:14:57Z",
+  "port": "COM4",
+  "start_params": {
+    "tracking_kp": 2.5,
+    "tracking_kd": 0.002,
+    "tracking_max_torque": 6.0,
+    "bounds_kp": 10.0,
+    "bounds_max_torque": 0.3
+  },
+  "goals": {
+    "target_tolerance_deg": 5.0,
+    "overshoot_tolerance_deg": 2.0,
+    "settle_time_target_s": 0.8,
+    "oob_clear_target_s": 0.5,
+    "tracking_turns": [
+      0.5,
+      5.0
+    ],
+    "bounds_turns": [
+      0.5,
+      5.0
+    ]
+  },
+  "stages": [
+    {
+      "stage": "tracking",
+      "iterations": [
+        {
+          "iteration": 0,
+          "evaluations": [
+            {
+              "label": "tracking_baseline",
+              "reason": "Starting from the supplied tracking gains.",
+              "params": {
+                "tracking_kp": 2.5,
+                "tracking_kd": 0.002,
+                "tracking_max_torque": 6.0,
+                "bounds_kp": 10.0,
+                "bounds_max_torque": 0.3
+              },
+              "results": [
+                {
+                  "test_name": "tracking_1800",
+                  "target_decideg": 1800,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 600,
+                    "angle_decideg": 1,
+                    "speed_decideg_s": 78,
+                    "torque_ma": 296,
+                    "foc_rate_hz": 975,
+                    "status_bits": 39
+                  },
+                  "metrics": {
+                    "sample_count": 497,
+                    "initial_angle_decideg": 1,
+                    "initial_speed_decideg_s": -15,
+                    "final_angle_decideg": 1461,
+                    "final_angle_error_decideg": -339,
+                    "final_speed_decideg_s": 3,
+                    "peak_abs_torque_ma": 6000,
+                    "peak_abs_speed_decideg_s": 6399,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "tracking_-1800",
+                  "target_decideg": -1800,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1011,
+                    "angle_decideg": -1,
+                    "speed_decideg_s": -79,
+                    "torque_ma": 4,
+                    "foc_rate_hz": 895,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 496,
+                    "initial_angle_decideg": -17,
+                    "initial_speed_decideg_s": -554,
+                    "final_angle_decideg": -1593,
+                    "final_angle_error_decideg": 207,
+                    "final_speed_decideg_s": -1,
+                    "peak_abs_torque_ma": 6000,
+                    "peak_abs_speed_decideg_s": 11587,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "tracking_18000",
+                  "target_decideg": 18000,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1016,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": -10,
+                    "torque_ma": 0,
+                    "foc_rate_hz": 880,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 1194,
+                    "initial_angle_decideg": 11,
+                    "initial_speed_decideg_s": 335,
+                    "final_angle_decideg": 17873,
+                    "final_angle_error_decideg": -127,
+                    "final_speed_decideg_s": -65,
+                    "peak_abs_torque_ma": 6000,
+                    "peak_abs_speed_decideg_s": 8371,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "tracking_-18000",
+                  "target_decideg": -18000,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1021,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": 40,
+                    "torque_ma": 0,
+                    "foc_rate_hz": 920,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 1191,
+                    "initial_angle_decideg": -3,
+                    "initial_speed_decideg_s": 5,
+                    "final_angle_decideg": -17858,
+                    "final_angle_error_decideg": 142,
+                    "final_speed_decideg_s": -27,
+                    "peak_abs_torque_ma": 6000,
+                    "peak_abs_speed_decideg_s": 12375,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                }
+              ],
+              "aggregate": {
+                "worst_settle_time_s": null,
+                "max_overshoot_decideg": 0,
+                "max_peak_torque_ma": 6000,
+                "max_peak_speed_decideg_s": 12375,
+                "max_abs_final_error_decideg": 339,
+                "max_abs_final_speed_decideg_s": 65,
+                "worst_oob_clear_time_s": null
+              },
+              "score": 143470.0,
+              "targets_met": false
+            }
+          ],
+          "selected": "tracking_baseline"
+        },
+        {
+          "iteration": 1,
+          "evaluations": [
+            {
+              "label": "tracking_iter1_cand1",
+              "reason": "Increase tracking_kp because the step response is too slow or too weak.",
+              "params": {
+                "tracking_kp": 3.0,
+                "tracking_kd": 0.002,
+                "tracking_max_torque": 6.0,
+                "bounds_kp": 10.0,
+                "bounds_max_torque": 0.3
+              },
+              "results": [
+                {
+                  "test_name": "tracking_1800",
+                  "target_decideg": 1800,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1026,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": -70,
+                    "torque_ma": 0,
+                    "foc_rate_hz": 885,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 496,
+                    "initial_angle_decideg": 6,
+                    "initial_speed_decideg_s": 270,
+                    "final_angle_decideg": 1537,
+                    "final_angle_error_decideg": -263,
+                    "final_speed_decideg_s": -11,
+                    "peak_abs_torque_ma": 6000,
+                    "peak_abs_speed_decideg_s": 7160,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "tracking_-1800",
+                  "target_decideg": -1800,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1036,
+                    "angle_decideg": -1,
+                    "speed_decideg_s": -18,
+                    "torque_ma": 5,
+                    "foc_rate_hz": 885,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 494,
+                    "initial_angle_decideg": -16,
+                    "initial_speed_decideg_s": -511,
+                    "final_angle_decideg": -1678,
+                    "final_angle_error_decideg": 122,
+                    "final_speed_decideg_s": -49,
+                    "peak_abs_torque_ma": 6000,
+                    "peak_abs_speed_decideg_s": 11927,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "tracking_18000",
+                  "target_decideg": 18000,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1041,
+                    "angle_decideg": -1,
+                    "speed_decideg_s": -42,
+                    "torque_ma": 5,
+                    "foc_rate_hz": 905,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 1193,
+                    "initial_angle_decideg": 6,
+                    "initial_speed_decideg_s": 251,
+                    "final_angle_decideg": 17870,
+                    "final_angle_error_decideg": -130,
+                    "final_speed_decideg_s": 17,
+                    "peak_abs_torque_ma": 6000,
+                    "peak_abs_speed_decideg_s": 8292,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "tracking_-18000",
+                  "target_decideg": -18000,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1046,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": 16,
+                    "torque_ma": 0,
+                    "foc_rate_hz": 885,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 1195,
+                    "initial_angle_decideg": -6,
+                    "initial_speed_decideg_s": -223,
+                    "final_angle_decideg": -17873,
+                    "final_angle_error_decideg": 127,
+                    "final_speed_decideg_s": 3,
+                    "peak_abs_torque_ma": 6000,
+                    "peak_abs_speed_decideg_s": 12451,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                }
+              ],
+              "aggregate": {
+                "worst_settle_time_s": null,
+                "max_overshoot_decideg": 0,
+                "max_peak_torque_ma": 6000,
+                "max_peak_speed_decideg_s": 12451,
+                "max_abs_final_error_decideg": 263,
+                "max_abs_final_speed_decideg_s": 49,
+                "worst_oob_clear_time_s": null
+              },
+              "score": 132070.0,
+              "targets_met": false
+            },
+            {
+              "label": "tracking_iter1_cand2",
+              "reason": "Increase tracking_kp and tracking_max_torque because the large-step response still looks force-limited.",
+              "params": {
+                "tracking_kp": 2.75,
+                "tracking_kd": 0.002,
+                "tracking_max_torque": 6.9,
+                "bounds_kp": 10.0,
+                "bounds_max_torque": 0.3
+              },
+              "results": [
+                {
+                  "test_name": "tracking_1800",
+                  "target_decideg": 1800,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1051,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": 0,
+                    "torque_ma": 0,
+                    "foc_rate_hz": 915,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 495,
+                    "initial_angle_decideg": 4,
+                    "initial_speed_decideg_s": 128,
+                    "final_angle_decideg": 1504,
+                    "final_angle_error_decideg": -296,
+                    "final_speed_decideg_s": 4,
+                    "peak_abs_torque_ma": 6900,
+                    "peak_abs_speed_decideg_s": 7437,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "tracking_-1800",
+                  "target_decideg": -1800,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1061,
+                    "angle_decideg": -1,
+                    "speed_decideg_s": 3,
+                    "torque_ma": 4,
+                    "foc_rate_hz": 920,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 494,
+                    "initial_angle_decideg": -15,
+                    "initial_speed_decideg_s": -428,
+                    "final_angle_decideg": -1637,
+                    "final_angle_error_decideg": 163,
+                    "final_speed_decideg_s": 58,
+                    "peak_abs_torque_ma": 6900,
+                    "peak_abs_speed_decideg_s": 11951,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "tracking_18000",
+                  "target_decideg": 18000,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1066,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": -19,
+                    "torque_ma": 0,
+                    "foc_rate_hz": 885,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 1195,
+                    "initial_angle_decideg": 6,
+                    "initial_speed_decideg_s": 165,
+                    "final_angle_decideg": 17880,
+                    "final_angle_error_decideg": -120,
+                    "final_speed_decideg_s": 3,
+                    "peak_abs_torque_ma": 6900,
+                    "peak_abs_speed_decideg_s": 8358,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "tracking_-18000",
+                  "target_decideg": -18000,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1071,
+                    "angle_decideg": 1,
+                    "speed_decideg_s": 23,
+                    "torque_ma": -4,
+                    "foc_rate_hz": 920,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 1192,
+                    "initial_angle_decideg": -4,
+                    "initial_speed_decideg_s": -162,
+                    "final_angle_decideg": -17874,
+                    "final_angle_error_decideg": 126,
+                    "final_speed_decideg_s": 83,
+                    "peak_abs_torque_ma": 6900,
+                    "peak_abs_speed_decideg_s": 12416,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                }
+              ],
+              "aggregate": {
+                "worst_settle_time_s": null,
+                "max_overshoot_decideg": 0,
+                "max_peak_torque_ma": 6900,
+                "max_peak_speed_decideg_s": 12416,
+                "max_abs_final_error_decideg": 296,
+                "max_abs_final_speed_decideg_s": 83,
+                "worst_oob_clear_time_s": null
+              },
+              "score": 137038.0,
+              "targets_met": false
+            }
+          ],
+          "selected": "tracking_iter1_cand1"
+        }
+      ],
+      "best": {
+        "label": "tracking_iter1_cand1",
+        "reason": "Increase tracking_kp because the step response is too slow or too weak.",
+        "params": {
+          "tracking_kp": 3.0,
+          "tracking_kd": 0.002,
+          "tracking_max_torque": 6.0,
+          "bounds_kp": 10.0,
+          "bounds_max_torque": 0.3
+        },
+        "results": [
+          {
+            "test_name": "tracking_1800",
+            "target_decideg": 1800,
+            "baseline": {
+              "dial_id": 0,
+              "seq": 1026,
+              "angle_decideg": 0,
+              "speed_decideg_s": -70,
+              "torque_ma": 0,
+              "foc_rate_hz": 885,
+              "status_bits": 1
+            },
+            "metrics": {
+              "sample_count": 496,
+              "initial_angle_decideg": 6,
+              "initial_speed_decideg_s": 270,
+              "final_angle_decideg": 1537,
+              "final_angle_error_decideg": -263,
+              "final_speed_decideg_s": -11,
+              "peak_abs_torque_ma": 6000,
+              "peak_abs_speed_decideg_s": 7160,
+              "overshoot_decideg": 0,
+              "settle_time_s": null,
+              "oob_clear_time_s": null
+            }
+          },
+          {
+            "test_name": "tracking_-1800",
+            "target_decideg": -1800,
+            "baseline": {
+              "dial_id": 0,
+              "seq": 1036,
+              "angle_decideg": -1,
+              "speed_decideg_s": -18,
+              "torque_ma": 5,
+              "foc_rate_hz": 885,
+              "status_bits": 1
+            },
+            "metrics": {
+              "sample_count": 494,
+              "initial_angle_decideg": -16,
+              "initial_speed_decideg_s": -511,
+              "final_angle_decideg": -1678,
+              "final_angle_error_decideg": 122,
+              "final_speed_decideg_s": -49,
+              "peak_abs_torque_ma": 6000,
+              "peak_abs_speed_decideg_s": 11927,
+              "overshoot_decideg": 0,
+              "settle_time_s": null,
+              "oob_clear_time_s": null
+            }
+          },
+          {
+            "test_name": "tracking_18000",
+            "target_decideg": 18000,
+            "baseline": {
+              "dial_id": 0,
+              "seq": 1041,
+              "angle_decideg": -1,
+              "speed_decideg_s": -42,
+              "torque_ma": 5,
+              "foc_rate_hz": 905,
+              "status_bits": 1
+            },
+            "metrics": {
+              "sample_count": 1193,
+              "initial_angle_decideg": 6,
+              "initial_speed_decideg_s": 251,
+              "final_angle_decideg": 17870,
+              "final_angle_error_decideg": -130,
+              "final_speed_decideg_s": 17,
+              "peak_abs_torque_ma": 6000,
+              "peak_abs_speed_decideg_s": 8292,
+              "overshoot_decideg": 0,
+              "settle_time_s": null,
+              "oob_clear_time_s": null
+            }
+          },
+          {
+            "test_name": "tracking_-18000",
+            "target_decideg": -18000,
+            "baseline": {
+              "dial_id": 0,
+              "seq": 1046,
+              "angle_decideg": 0,
+              "speed_decideg_s": 16,
+              "torque_ma": 0,
+              "foc_rate_hz": 885,
+              "status_bits": 1
+            },
+            "metrics": {
+              "sample_count": 1195,
+              "initial_angle_decideg": -6,
+              "initial_speed_decideg_s": -223,
+              "final_angle_decideg": -17873,
+              "final_angle_error_decideg": 127,
+              "final_speed_decideg_s": 3,
+              "peak_abs_torque_ma": 6000,
+              "peak_abs_speed_decideg_s": 12451,
+              "overshoot_decideg": 0,
+              "settle_time_s": null,
+              "oob_clear_time_s": null
+            }
+          }
+        ],
+        "aggregate": {
+          "worst_settle_time_s": null,
+          "max_overshoot_decideg": 0,
+          "max_peak_torque_ma": 6000,
+          "max_peak_speed_decideg_s": 12451,
+          "max_abs_final_error_decideg": 263,
+          "max_abs_final_speed_decideg_s": 49,
+          "worst_oob_clear_time_s": null
+        },
+        "score": 132070.0,
+        "targets_met": false
+      }
+    },
+    {
+      "stage": "bounds",
+      "iterations": [
+        {
+          "iteration": 0,
+          "evaluations": [
+            {
+              "label": "bounds_baseline",
+              "reason": "Starting from the best tracking-stage gains.",
+              "params": {
+                "tracking_kp": 3.0,
+                "tracking_kd": 0.002,
+                "tracking_max_torque": 6.0,
+                "bounds_kp": 10.0,
+                "bounds_max_torque": 0.3
+              },
+              "results": [
+                {
+                  "test_name": "bounds_1800",
+                  "target_decideg": 1800,
+                  "bounds_min_decideg": 1720,
+                  "bounds_max_decideg": 1880,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1076,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": 17,
+                    "torque_ma": 0,
+                    "foc_rate_hz": 875,
+                    "status_bits": 1
+                  },
+                  "metrics": {
+                    "sample_count": 496,
+                    "initial_angle_decideg": 4,
+                    "initial_speed_decideg_s": 123,
+                    "final_angle_decideg": 1547,
+                    "final_angle_error_decideg": -253,
+                    "final_speed_decideg_s": -1,
+                    "peak_abs_torque_ma": 6300,
+                    "peak_abs_speed_decideg_s": 7557,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "bounds_-1800",
+                  "target_decideg": -1800,
+                  "bounds_min_decideg": -1880,
+                  "bounds_max_decideg": -1720,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1086,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": -14,
+                    "torque_ma": 300,
+                    "foc_rate_hz": 890,
+                    "status_bits": 35
+                  },
+                  "metrics": {
+                    "sample_count": 498,
+                    "initial_angle_decideg": -13,
+                    "initial_speed_decideg_s": -448,
+                    "final_angle_decideg": -1679,
+                    "final_angle_error_decideg": 121,
+                    "final_speed_decideg_s": 7,
+                    "peak_abs_torque_ma": 6300,
+                    "peak_abs_speed_decideg_s": 12104,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "bounds_18000",
+                  "target_decideg": 18000,
+                  "bounds_min_decideg": 17920,
+                  "bounds_max_decideg": 18080,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1091,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": 3,
+                    "torque_ma": -300,
+                    "foc_rate_hz": 900,
+                    "status_bits": 35
+                  },
+                  "metrics": {
+                    "sample_count": 1193,
+                    "initial_angle_decideg": 4,
+                    "initial_speed_decideg_s": 20,
+                    "final_angle_decideg": 17926,
+                    "final_angle_error_decideg": -74,
+                    "final_speed_decideg_s": 21,
+                    "peak_abs_torque_ma": 6300,
+                    "peak_abs_speed_decideg_s": 8290,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": 2.687
+                  }
+                },
+                {
+                  "test_name": "bounds_-18000",
+                  "target_decideg": -18000,
+                  "bounds_min_decideg": -18080,
+                  "bounds_max_decideg": -17920,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1096,
+                    "angle_decideg": -1,
+                    "speed_decideg_s": -4,
+                    "torque_ma": 305,
+                    "foc_rate_hz": 886,
+                    "status_bits": 35
+                  },
+                  "metrics": {
+                    "sample_count": 1191,
+                    "initial_angle_decideg": -1,
+                    "initial_speed_decideg_s": 0,
+                    "final_angle_decideg": -17884,
+                    "final_angle_error_decideg": 116,
+                    "final_speed_decideg_s": -69,
+                    "peak_abs_torque_ma": 6300,
+                    "peak_abs_speed_decideg_s": 12480,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                }
+              ],
+              "aggregate": {
+                "worst_settle_time_s": null,
+                "max_overshoot_decideg": 0,
+                "max_peak_torque_ma": 6300,
+                "max_peak_speed_decideg_s": 12480,
+                "max_abs_final_error_decideg": 253,
+                "max_abs_final_speed_decideg_s": 69,
+                "worst_oob_clear_time_s": 2.687
+              },
+              "score": 118293.5,
+              "targets_met": false
+            }
+          ],
+          "selected": "bounds_baseline"
+        },
+        {
+          "iteration": 1,
+          "evaluations": [
+            {
+              "label": "bounds_iter1_cand1",
+              "reason": "Increase bounds_kp because the knob is not re-entering bounds strongly enough.",
+              "params": {
+                "tracking_kp": 3.0,
+                "tracking_kd": 0.002,
+                "tracking_max_torque": 6.0,
+                "bounds_kp": 12.5,
+                "bounds_max_torque": 0.3
+              },
+              "results": [
+                {
+                  "test_name": "bounds_1800",
+                  "target_decideg": 1800,
+                  "bounds_min_decideg": 1720,
+                  "bounds_max_decideg": 1880,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1101,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": 1,
+                    "torque_ma": -300,
+                    "foc_rate_hz": 880,
+                    "status_bits": 35
+                  },
+                  "metrics": {
+                    "sample_count": 496,
+                    "initial_angle_decideg": 5,
+                    "initial_speed_decideg_s": 253,
+                    "final_angle_decideg": 1592,
+                    "final_angle_error_decideg": -208,
+                    "final_speed_decideg_s": 58,
+                    "peak_abs_torque_ma": 6300,
+                    "peak_abs_speed_decideg_s": 7543,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "bounds_-1800",
+                  "target_decideg": -1800,
+                  "bounds_min_decideg": -1880,
+                  "bounds_max_decideg": -1720,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1111,
+                    "angle_decideg": -1,
+                    "speed_decideg_s": -27,
+                    "torque_ma": 305,
+                    "foc_rate_hz": 890,
+                    "status_bits": 35
+                  },
+                  "metrics": {
+                    "sample_count": 496,
+                    "initial_angle_decideg": -12,
+                    "initial_speed_decideg_s": -423,
+                    "final_angle_decideg": -1674,
+                    "final_angle_error_decideg": 126,
+                    "final_speed_decideg_s": -10,
+                    "peak_abs_torque_ma": 6300,
+                    "peak_abs_speed_decideg_s": 12117,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "bounds_18000",
+                  "target_decideg": 18000,
+                  "bounds_min_decideg": 17920,
+                  "bounds_max_decideg": 18080,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1116,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": -2,
+                    "torque_ma": -300,
+                    "foc_rate_hz": 915,
+                    "status_bits": 35
+                  },
+                  "metrics": {
+                    "sample_count": 1190,
+                    "initial_angle_decideg": 6,
+                    "initial_speed_decideg_s": 288,
+                    "final_angle_decideg": 17920,
+                    "final_angle_error_decideg": -80,
+                    "final_speed_decideg_s": 7,
+                    "peak_abs_torque_ma": 6300,
+                    "peak_abs_speed_decideg_s": 8265,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": 3.359
+                  }
+                },
+                {
+                  "test_name": "bounds_-18000",
+                  "target_decideg": -18000,
+                  "bounds_min_decideg": -18080,
+                  "bounds_max_decideg": -17920,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1121,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": 2,
+                    "torque_ma": 300,
+                    "foc_rate_hz": 895,
+                    "status_bits": 35
+                  },
+                  "metrics": {
+                    "sample_count": 1196,
+                    "initial_angle_decideg": -1,
+                    "initial_speed_decideg_s": -62,
+                    "final_angle_decideg": -17915,
+                    "final_angle_error_decideg": 85,
+                    "final_speed_decideg_s": -15,
+                    "peak_abs_torque_ma": 6300,
+                    "peak_abs_speed_decideg_s": 12465,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                }
+              ],
+              "aggregate": {
+                "worst_settle_time_s": null,
+                "max_overshoot_decideg": 0,
+                "max_peak_torque_ma": 6300,
+                "max_peak_speed_decideg_s": 12465,
+                "max_abs_final_error_decideg": 208,
+                "max_abs_final_speed_decideg_s": 58,
+                "worst_oob_clear_time_s": 3.359
+              },
+              "score": 113895.5,
+              "targets_met": false
+            },
+            {
+              "label": "bounds_iter1_cand2",
+              "reason": "Increase bounds_kp and bounds_max_torque because OOB recovery still appears force-limited.",
+              "params": {
+                "tracking_kp": 3.0,
+                "tracking_kd": 0.002,
+                "tracking_max_torque": 6.0,
+                "bounds_kp": 11.5,
+                "bounds_max_torque": 0.36
+              },
+              "results": [
+                {
+                  "test_name": "bounds_1800",
+                  "target_decideg": 1800,
+                  "bounds_min_decideg": 1720,
+                  "bounds_max_decideg": 1880,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1126,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": -7,
+                    "torque_ma": -360,
+                    "foc_rate_hz": 915,
+                    "status_bits": 35
+                  },
+                  "metrics": {
+                    "sample_count": 497,
+                    "initial_angle_decideg": 4,
+                    "initial_speed_decideg_s": 240,
+                    "final_angle_decideg": 1542,
+                    "final_angle_error_decideg": -258,
+                    "final_speed_decideg_s": 19,
+                    "peak_abs_torque_ma": 6360,
+                    "peak_abs_speed_decideg_s": 7620,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "bounds_-1800",
+                  "target_decideg": -1800,
+                  "bounds_min_decideg": -1880,
+                  "bounds_max_decideg": -1720,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1136,
+                    "angle_decideg": -1,
+                    "speed_decideg_s": -57,
+                    "torque_ma": 365,
+                    "foc_rate_hz": 920,
+                    "status_bits": 35
+                  },
+                  "metrics": {
+                    "sample_count": 493,
+                    "initial_angle_decideg": -11,
+                    "initial_speed_decideg_s": -261,
+                    "final_angle_decideg": -1653,
+                    "final_angle_error_decideg": 147,
+                    "final_speed_decideg_s": 59,
+                    "peak_abs_torque_ma": 6360,
+                    "peak_abs_speed_decideg_s": 12198,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                },
+                {
+                  "test_name": "bounds_18000",
+                  "target_decideg": 18000,
+                  "bounds_min_decideg": 17920,
+                  "bounds_max_decideg": 18080,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1141,
+                    "angle_decideg": 1,
+                    "speed_decideg_s": 53,
+                    "torque_ma": -365,
+                    "foc_rate_hz": 885,
+                    "status_bits": 35
+                  },
+                  "metrics": {
+                    "sample_count": 1190,
+                    "initial_angle_decideg": 7,
+                    "initial_speed_decideg_s": 231,
+                    "final_angle_decideg": 17937,
+                    "final_angle_error_decideg": -63,
+                    "final_speed_decideg_s": 4,
+                    "peak_abs_torque_ma": 6360,
+                    "peak_abs_speed_decideg_s": 8279,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": 2.766
+                  }
+                },
+                {
+                  "test_name": "bounds_-18000",
+                  "target_decideg": -18000,
+                  "bounds_min_decideg": -18080,
+                  "bounds_max_decideg": -17920,
+                  "baseline": {
+                    "dial_id": 0,
+                    "seq": 1146,
+                    "angle_decideg": 0,
+                    "speed_decideg_s": 9,
+                    "torque_ma": 360,
+                    "foc_rate_hz": 886,
+                    "status_bits": 35
+                  },
+                  "metrics": {
+                    "sample_count": 1191,
+                    "initial_angle_decideg": 0,
+                    "initial_speed_decideg_s": -1,
+                    "final_angle_decideg": -17877,
+                    "final_angle_error_decideg": 123,
+                    "final_speed_decideg_s": -9,
+                    "peak_abs_torque_ma": 6360,
+                    "peak_abs_speed_decideg_s": 12529,
+                    "overshoot_decideg": 0,
+                    "settle_time_s": null,
+                    "oob_clear_time_s": null
+                  }
+                }
+              ],
+              "aggregate": {
+                "worst_settle_time_s": null,
+                "max_overshoot_decideg": 0,
+                "max_peak_torque_ma": 6360,
+                "max_peak_speed_decideg_s": 12529,
+                "max_abs_final_error_decideg": 258,
+                "max_abs_final_speed_decideg_s": 59,
+                "worst_oob_clear_time_s": 2.766
+              },
+              "score": 119321.8,
+              "targets_met": false
+            }
+          ],
+          "selected": "bounds_iter1_cand1"
+        }
+      ],
+      "best": {
+        "label": "bounds_iter1_cand1",
+        "reason": "Increase bounds_kp because the knob is not re-entering bounds strongly enough.",
+        "params": {
+          "tracking_kp": 3.0,
+          "tracking_kd": 0.002,
+          "tracking_max_torque": 6.0,
+          "bounds_kp": 12.5,
+          "bounds_max_torque": 0.3
+        },
+        "results": [
+          {
+            "test_name": "bounds_1800",
+            "target_decideg": 1800,
+            "bounds_min_decideg": 1720,
+            "bounds_max_decideg": 1880,
+            "baseline": {
+              "dial_id": 0,
+              "seq": 1101,
+              "angle_decideg": 0,
+              "speed_decideg_s": 1,
+              "torque_ma": -300,
+              "foc_rate_hz": 880,
+              "status_bits": 35
+            },
+            "metrics": {
+              "sample_count": 496,
+              "initial_angle_decideg": 5,
+              "initial_speed_decideg_s": 253,
+              "final_angle_decideg": 1592,
+              "final_angle_error_decideg": -208,
+              "final_speed_decideg_s": 58,
+              "peak_abs_torque_ma": 6300,
+              "peak_abs_speed_decideg_s": 7543,
+              "overshoot_decideg": 0,
+              "settle_time_s": null,
+              "oob_clear_time_s": null
+            }
+          },
+          {
+            "test_name": "bounds_-1800",
+            "target_decideg": -1800,
+            "bounds_min_decideg": -1880,
+            "bounds_max_decideg": -1720,
+            "baseline": {
+              "dial_id": 0,
+              "seq": 1111,
+              "angle_decideg": -1,
+              "speed_decideg_s": -27,
+              "torque_ma": 305,
+              "foc_rate_hz": 890,
+              "status_bits": 35
+            },
+            "metrics": {
+              "sample_count": 496,
+              "initial_angle_decideg": -12,
+              "initial_speed_decideg_s": -423,
+              "final_angle_decideg": -1674,
+              "final_angle_error_decideg": 126,
+              "final_speed_decideg_s": -10,
+              "peak_abs_torque_ma": 6300,
+              "peak_abs_speed_decideg_s": 12117,
+              "overshoot_decideg": 0,
+              "settle_time_s": null,
+              "oob_clear_time_s": null
+            }
+          },
+          {
+            "test_name": "bounds_18000",
+            "target_decideg": 18000,
+            "bounds_min_decideg": 17920,
+            "bounds_max_decideg": 18080,
+            "baseline": {
+              "dial_id": 0,
+              "seq": 1116,
+              "angle_decideg": 0,
+              "speed_decideg_s": -2,
+              "torque_ma": -300,
+              "foc_rate_hz": 915,
+              "status_bits": 35
+            },
+            "metrics": {
+              "sample_count": 1190,
+              "initial_angle_decideg": 6,
+              "initial_speed_decideg_s": 288,
+              "final_angle_decideg": 17920,
+              "final_angle_error_decideg": -80,
+              "final_speed_decideg_s": 7,
+              "peak_abs_torque_ma": 6300,
+              "peak_abs_speed_decideg_s": 8265,
+              "overshoot_decideg": 0,
+              "settle_time_s": null,
+              "oob_clear_time_s": 3.359
+            }
+          },
+          {
+            "test_name": "bounds_-18000",
+            "target_decideg": -18000,
+            "bounds_min_decideg": -18080,
+            "bounds_max_decideg": -17920,
+            "baseline": {
+              "dial_id": 0,
+              "seq": 1121,
+              "angle_decideg": 0,
+              "speed_decideg_s": 2,
+              "torque_ma": 300,
+              "foc_rate_hz": 895,
+              "status_bits": 35
+            },
+            "metrics": {
+              "sample_count": 1196,
+              "initial_angle_decideg": -1,
+              "initial_speed_decideg_s": -62,
+              "final_angle_decideg": -17915,
+              "final_angle_error_decideg": 85,
+              "final_speed_decideg_s": -15,
+              "peak_abs_torque_ma": 6300,
+              "peak_abs_speed_decideg_s": 12465,
+              "overshoot_decideg": 0,
+              "settle_time_s": null,
+              "oob_clear_time_s": null
+            }
+          }
+        ],
+        "aggregate": {
+          "worst_settle_time_s": null,
+          "max_overshoot_decideg": 0,
+          "max_peak_torque_ma": 6300,
+          "max_peak_speed_decideg_s": 12465,
+          "max_abs_final_error_decideg": 208,
+          "max_abs_final_speed_decideg_s": 58,
+          "worst_oob_clear_time_s": 3.359
+        },
+        "score": 113895.5,
+        "targets_met": false
+      }
+    }
+  ],
+  "final_params": {
+    "tracking_kp": 3.0,
+    "tracking_kd": 0.002,
+    "tracking_max_torque": 6.0,
+    "bounds_kp": 12.5,
+    "bounds_max_torque": 0.3
+  },
+  "finished_utc": "2026-06-07T07:16:40Z"
+}

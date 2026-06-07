@@ -5,7 +5,7 @@
 | Metric | Value |
 | --- | --- |
 | port | COM4 |
-| generated_utc | 2026-06-07T06:38:26Z |
+| generated_utc | 2026-06-07T06:45:45Z |
 | wall_half_width | 120 |
 | capture_duration | 3 |
 | upper_oob_seen | True |
@@ -18,5 +18,5 @@ Rows collected: 2
 
 | stage | operator_ok | samples | oob_seen | max_abs_torque_ma | max_abs_speed_decideg_s |
 | --- | --- | --- | --- | --- | --- |
-| upper_wall | False | 587 | True | 2269 | 1561 |
-| lower_wall | False | 1018 | True | 4364 | 4423 |
+| upper_wall | False | 480 | True | 2907 | 3749 |
+| lower_wall | False | 465 | True | 6300 | 4711 |

@@ -307,7 +307,7 @@ float M0_electricalAngle()
 /// MUST be called during initialization with unloaded motor
 /// @param _PP Number of pole pairs for this motor
 /// @param _DIR Rotation direction: 1=CCW, -1=CW
-/// @param alignment_torque Torque to apply during alignment (default: 3.0 Nm)
+/// @param alignment_torque Torque to apply during alignment (default: 6.0 Nm)
 /// @note Blocks for 1 second during alignment. Motor will experience brief torque pulse
 void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_rate)
 {
