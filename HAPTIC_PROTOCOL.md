@@ -299,7 +299,7 @@ Host                                Controller
 
 ## 6. Error Handling
 
-- **Buffer overflow:** If a command line exceeds 127 bytes, the partial line is discarded and the protocol fault bit is latched through telemetry for a short hold window. The firmware does not print ad hoc error text onto the serial wire.
+- **Buffer overflow:** If a command line exceeds 127 bytes, the buffer is reset and the malformed command is discarded.
 - **Malformed commands:** Commands with missing required fields are discarded and `status_bits` bit 6 may be set until a later valid command clears the fault state.
 - **Unknown command letters:** Ignored and treated as a protocol fault.
 - **Unknown `S` parameter names:** Ignored. The command is still acknowledged.
@@ -314,7 +314,7 @@ When multiple ESP32 controllers are connected via USB:
 2. **Probe** each port by sending `V,<seq>\n` and waiting for `V,<seq>,<version>\n` (timeout ~1.5 s). Filter through any telemetry `T,...` lines that arrive first.
 3. **Read identity** with `I,<seq>\n` to get the dial IDs assigned to each board.
 4. **Build a device map:** `{dial_id: "COMx", ...}` so the host can address dials by logical ID.
-5. **Assign identity** (one-time provisioning): Use `tools/deploy_set_id.py`, `tools/motor_id_calibration.py`, or send `I,<seq>,<dial_id>\n` to write a persistent ID. The provisioning tools detect which dial is which by monitoring telemetry angle changes while the user physically moves each dial.
+5. **Assign identity** (one-time provisioning): Use the `motor_id_calibration.py` tool or send `I,<seq>,<dial_id>\n` to write a persistent ID. The calibration tool detects which dial is which by monitoring telemetry angle changes while the user physically moves each dial.
 
 ---
 

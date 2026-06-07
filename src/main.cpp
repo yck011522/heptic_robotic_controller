@@ -50,6 +50,7 @@ int serial_buffer_index = 0;
 // Protocol state
 uint32_t last_processed_seq = 0; // seq from last processed C command
 bool fault_active = false;
+unsigned long fault_latched_until_ms = 0;
 
 // Telemetry and FOC rate measurement
 unsigned long telemetry_interval_ms = 20; // Telemetry reporting interval (ms) - modifiable via S command
@@ -125,6 +126,25 @@ static uint16_t build_status_bits()
     status_bits |= 1u << 6;
 
   return status_bits;
+}
+
+static void latch_fault_for_ms(unsigned long duration_ms)
+{
+  unsigned long now = millis();
+  unsigned long candidate_until = now + duration_ms;
+
+  fault_active = true;
+  if (fault_latched_until_ms == 0 || (long)(candidate_until - fault_latched_until_ms) > 0)
+    fault_latched_until_ms = candidate_until;
+}
+
+static void clear_fault_if_not_latched(unsigned long now)
+{
+  if (fault_latched_until_ms != 0 && (long)(now - fault_latched_until_ms) < 0)
+    return;
+
+  fault_active = false;
+  fault_latched_until_ms = 0;
 }
 
 static uint8_t load_persistent_dial_id()
@@ -267,7 +287,7 @@ void parse_host_command(const char *line)
     dial_config0.bounds_min_angle = decideg_to_rad(min_decideg);
     dial_config0.bounds_max_angle = decideg_to_rad(max_decideg);
     last_processed_seq = seq;
-    fault_active = false;
+    clear_fault_if_not_latched(millis());
   }
   else if (cmd == 'R')
   {
@@ -285,7 +305,7 @@ void parse_host_command(const char *line)
 
     bool update_tracking_target = last_processed_seq <= seq;
     dial0.set_current_position(decideg_to_rad(current_pos_decideg), update_tracking_target);
-    fault_active = false;
+    clear_fault_if_not_latched(millis());
 
     Serial.print("R,");
     Serial.println(seq);
@@ -304,6 +324,7 @@ void parse_host_command(const char *line)
     }
 
     apply_runtime_parameter(param, value);
+    clear_fault_if_not_latched(millis());
     Serial.print("S,");
     Serial.println(seq);
   }
@@ -330,6 +351,8 @@ void parse_host_command(const char *line)
       dial_id = (uint8_t)requested_dial_id;
       store_persistent_dial_id(dial_id);
     }
+
+    clear_fault_if_not_latched(millis());
 
     Serial.print("I,");
     Serial.print(seq);
@@ -379,9 +402,10 @@ void process_serial_input()
     }
     else
     {
-      // Buffer overflow protection: reset buffer
+      // Buffer overflow protection: discard the partial line and surface a
+      // latched fault through telemetry instead of printing ad hoc text.
       serial_buffer_index = 0;
-      Serial.println("ERROR: Serial buffer overflow");
+      latch_fault_for_ms(1000);
     }
   }
 }
@@ -392,6 +416,9 @@ void loop()
 {
   unsigned long current_time = millis();
   foc_cycle_count++;
+
+  if (fault_latched_until_ms != 0 && (long)(current_time - fault_latched_until_ms) >= 0)
+    clear_fault_if_not_latched(current_time);
 
   // ==================== SERIAL INPUT ====================
   // Non-blocking read of joint position commands from host

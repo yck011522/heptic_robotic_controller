@@ -38,6 +38,9 @@ ESP32_VID_PIDS = {
     (0x303A, 0x0002),  # ESP32-S3 JTAG
 }
 
+DEFAULT_DEPLOY_VID = 0x1A86
+DEFAULT_DEPLOY_PID = 0x7523
+
 
 def list_candidate_ports(filter_by_vid_pid=True):
     """Return list of serial port info dicts for likely ESP32 devices.
@@ -64,6 +67,23 @@ def list_candidate_ports(filter_by_vid_pid=True):
     if not candidates:
         candidates = [port_info(p) for p in ports]
     return candidates
+
+
+def list_ports_by_exact_vid_pid(vid, pid):
+    """Return ports whose USB serial bridge matches one exact VID/PID pair."""
+
+    ports = serial.tools.list_ports.comports()
+    matches = []
+    for p in ports:
+        if p.vid == vid and p.pid == pid:
+            matches.append(
+                {
+                    "port": p.device,
+                    "description": p.description,
+                    "vid_pid": f"{vid:04X}:{pid:04X}",
+                }
+            )
+    return matches
 
 
 def _send_and_wait(ser, command, expected_prefix, timeout=PROBE_TIMEOUT):
@@ -150,6 +170,24 @@ def discover_devices(baud=BAUD, filter_by_vid_pid=True):
         if info is not None:
             devices.append(info)
     return devices
+
+
+def discover_devices_on_ports(ports, baud=BAUD):
+    """Probe a caller-specified port list and return devices that respond."""
+
+    devices = []
+    for port in ports:
+        info = probe_port(port, baud)
+        if info is not None:
+            devices.append(info)
+    return devices
+
+
+def discover_devices_by_exact_vid_pid(vid=DEFAULT_DEPLOY_VID, pid=DEFAULT_DEPLOY_PID, baud=BAUD):
+    """Probe only ports that match one exact VID/PID pair."""
+
+    ports = [candidate["port"] for candidate in list_ports_by_exact_vid_pid(vid, pid)]
+    return discover_devices_on_ports(ports, baud=baud)
 
 
 def assign_identity(port, dial_id, baud=BAUD):
