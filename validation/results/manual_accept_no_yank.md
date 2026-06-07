@@ -5,10 +5,10 @@
 | Metric | Value |
 | --- | --- |
 | port | COM4 |
-| generated_utc | 2026-06-07T06:37:30Z |
+| generated_utc | 2026-06-07T06:45:01Z |
 | cycles | 3 |
 | offset_decideg | 1800 |
-| passed | False |
+| passed | True |
 
 ## manual_cycles
 
@@ -16,6 +16,6 @@ Rows collected: 3
 
 | cycle | requested_angle_decideg | ack | felt_calm | dial_id | seq | angle_decideg | speed_decideg_s | torque_ma | foc_rate_hz | status_bits |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 3789 | R,401 | True | 0 | 500 | 3789 | -7 | 0 | 985 | 7 |
-| 2 | 189 | R,402 | False | 0 | 501 | 211 | 1013 | -99 | 985 | 7 |
-| 3 | 3789 | R,403 | False | 0 | 502 | 3772 | -688 | 75 | 985 | 7 |
+| 1 | 5926 | R,401 | True | 0 | 500 | 5926 | 19 | 0 | 985 | 7 |
+| 2 | 2326 | R,402 | True | 0 | 501 | 2326 | 21 | 0 | 985 | 7 |
+| 3 | 5926 | R,403 | True | 0 | 502 | 5926 | 26 | 0 | 985 | 7 |

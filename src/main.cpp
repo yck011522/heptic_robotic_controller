@@ -303,8 +303,7 @@ void parse_host_command(const char *line)
       return;
     }
 
-    bool update_tracking_target = last_processed_seq <= seq;
-    dial0.set_current_position(decideg_to_rad(current_pos_decideg), update_tracking_target);
+    dial0.set_current_position(decideg_to_rad(current_pos_decideg), true);
     clear_fault_if_not_latched(millis());
 
     Serial.print("R,");
