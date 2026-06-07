@@ -183,38 +183,40 @@ def compute_overshoot_decideg(rows: list[dict[str, Any]], target_decideg: int) -
     return max(0, overshoot)
 
 
+def mean_abs_error_deg(rows: list[dict[str, Any]]) -> float:
+    return round(sum(abs(int(row["error_decideg"])) for row in rows) / len(rows) / 10.0, 3)
+
+
 def find_settle_metrics(
     rows: list[dict[str, Any]],
-    angle_tolerance_decideg: int,
-    speed_tolerance_decideg_s: int,
+    movement_tolerance_decideg: int,
     settle_frames: int,
-) -> tuple[float | None, float | None]:
-    consecutive = 0
+) -> tuple[float | None, float | None, float | None]:
+    if len(rows) < settle_frames:
+        return None, None, None
     settle_index = None
-    for index, row in enumerate(rows):
-        abs_error = abs(int(row["error_decideg"]))
-        abs_speed = abs(int(row["speed_decideg_s"]))
-        if abs_error <= angle_tolerance_decideg and abs_speed <= speed_tolerance_decideg_s:
-            consecutive += 1
-            if consecutive >= settle_frames:
-                settle_index = index - settle_frames + 1
-                break
-        else:
-            consecutive = 0
+    remaining_movement_deg = None
+    for index in range(len(rows) - settle_frames + 1):
+        tail_rows = rows[index:]
+        tail_angles = [int(row["angle_decideg"]) for row in tail_rows]
+        remaining_movement_decideg = max(tail_angles) - min(tail_angles)
+        if remaining_movement_decideg <= movement_tolerance_decideg:
+            settle_index = index
+            remaining_movement_deg = decideg_to_deg(remaining_movement_decideg)
+            break
 
     if settle_index is None:
-        return None, None
+        return None, None, None
 
     tail_rows = rows[settle_index:]
-    settle_distance_decideg = max(abs(int(row["error_decideg"])) for row in tail_rows)
-    return float(rows[settle_index]["t_s"]), decideg_to_deg(settle_distance_decideg)
+    settle_error_deg = mean_abs_error_deg(tail_rows)
+    return float(rows[settle_index]["t_s"]), settle_error_deg, round(remaining_movement_deg, 3)
 
 
 def summarize_test(rows: list[dict[str, Any]], target_decideg: int, args: argparse.Namespace) -> dict[str, Any]:
-    settle_time_s, settle_distance_deg = find_settle_metrics(
+    settle_time_s, settle_error_deg, remaining_movement_deg = find_settle_metrics(
         rows,
-        args.settle_band_decideg,
-        args.settle_speed_decideg_s,
+        args.settle_movement_decideg,
         args.settle_hold_frames,
     )
     abs_errors_decideg = [abs(int(row["error_decideg"])) for row in rows]
@@ -233,7 +235,8 @@ def summarize_test(rows: list[dict[str, Any]], target_decideg: int, args: argpar
         "overshoot_deg": round(decideg_to_deg(compute_overshoot_decideg(rows, target_decideg)), 3),
         "reach_90_time_s": find_reach_time(rows, target_decideg, 0.9),
         "settle_time_s": settle_time_s,
-        "settle_distance_deg": round(settle_distance_deg, 3) if settle_distance_deg is not None else None,
+        "settle_error_deg": settle_error_deg,
+        "remaining_movement_deg": remaining_movement_deg,
         "steady_state_mean_abs_error_deg": round(sum(steady_state_abs_error) / len(steady_state_abs_error), 3),
         "peak_abs_speed_deg_s": round(max(abs(float(row["speed_deg_s"])) for row in rows), 3),
         "peak_abs_torque_ma": max(abs(int(row["torque_ma"])) for row in rows),
@@ -373,7 +376,8 @@ def print_test_summary(test: dict[str, Any]) -> None:
         "overshoot_deg",
         "reach_90_time_s",
         "settle_time_s",
-        "settle_distance_deg",
+        "settle_error_deg",
+        "remaining_movement_deg",
         "steady_state_mean_abs_error_deg",
         "final_error_deg",
         "peak_abs_speed_deg_s",
@@ -394,9 +398,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wide-bound-turns", type=float, default=DEFAULT_WIDE_BOUND_TURNS, help="Half-width of the very wide bounds used to isolate tracking")
     parser.add_argument("--small-step-capture-s", type=float, default=DEFAULT_SMALL_CAPTURE_S, help="Capture window for sub-1-turn tests")
     parser.add_argument("--large-step-capture-s", type=float, default=DEFAULT_LARGE_CAPTURE_S, help="Capture window for 1-turn-and-larger tests")
-    parser.add_argument("--settle-band-deg", type=float, default=5.0, help="Angle band used to declare the response settled")
-    parser.add_argument("--settle-speed-deg-s", type=float, default=15.0, help="Speed band used to declare the response settled")
-    parser.add_argument("--settle-hold-frames", type=int, default=3, help="Consecutive in-band frames required for settle detection")
+    parser.add_argument("--settle-movement-deg", "--settle-band-deg", dest="settle_movement_deg", type=float, default=5.0, help="Maximum remaining dial movement used to declare the response settled")
+    parser.add_argument("--settle-speed-deg-s", type=float, default=15.0, help=argparse.SUPPRESS)
+    parser.add_argument("--settle-hold-frames", type=int, default=3, help="Minimum trailing telemetry frames required after the settle point")
     parser.add_argument("--steady-state-samples", type=int, default=20, help="Number of tail samples used for steady-state mean abs error")
     parser.add_argument("--preview-rows", type=int, default=8, help="How many telemetry rows to print per test as a preview")
     parser.add_argument("--output-dir", default=str(Path(__file__).resolve().parent / "logs"), help="Directory for CSV and optional plot outputs")
@@ -407,8 +411,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     amplitudes_turns = parse_turns(args.turns)
-    args.settle_band_decideg = deg_to_decideg(args.settle_band_deg)
-    args.settle_speed_decideg_s = deg_to_decideg(args.settle_speed_deg_s)
+    args.settle_movement_decideg = deg_to_decideg(args.settle_movement_deg)
     args.wide_bound_decideg = turns_to_decideg(args.wide_bound_turns)
 
     port = resolve_test_port(args.port, args.baud, args.device_id, allow_candidate_fallback=bool(args.port is None))
@@ -444,7 +447,7 @@ def main() -> None:
     if args.plot:
         print(f"Plot: {plot_path}")
     print(
-        f"Settle rule: abs(error) <= {args.settle_band_deg} deg and abs(speed) <= {args.settle_speed_deg_s} deg/s for {args.settle_hold_frames} frames"
+        f"Settle rule: remaining dial movement over the rest of the capture <= {args.settle_movement_deg} deg with at least {args.settle_hold_frames} trailing frames"
     )
 
     for test in tests:

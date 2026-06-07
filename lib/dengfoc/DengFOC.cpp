@@ -324,6 +324,18 @@ void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_r
     delay(100);
   }
 
+  M0_setTorque(alignment_torque, _3PI_2 - 1.1); // Small angle offset to ensure stable settling on the correct pole
+  delay(400); // Wait for magnetic settling
+  M0_setTorque(alignment_torque, _3PI_2 + 1.1); // Small angle offset to ensure stable settling on the correct pole
+  delay(300); // Wait for magnetic settling
+  M0_setTorque(alignment_torque, _3PI_2 - 0.5); // Small angle offset to ensure stable settling on the correct pole
+  delay(200); // Wait for magnetic settling
+  M0_setTorque(alignment_torque, _3PI_2 + 0.5); // Small angle offset to ensure stable settling on the correct pole
+  delay(200); // Wait for magnetic settling
+  M0_setTorque(alignment_torque, _3PI_2 - 0.5); // Small angle offset to ensure stable settling on the correct pole
+  delay(100); // Wait for magnetic settling
+  M0_setTorque(alignment_torque, _3PI_2 + 0.5); // Small angle offset to ensure stable settling on the correct pole
+  delay(100); // Wait for magnetic settling
   M0_setTorque(alignment_torque, _3PI_2);
   delay(1000); // Wait for magnetic settling
 
