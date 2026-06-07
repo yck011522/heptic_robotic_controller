@@ -4,7 +4,7 @@
 // 仅在DengFOC官方硬件上测试过，欢迎硬件购买/支持作者，淘宝搜索店铺：灯哥开源
 // 你的支持将是接下来做视频和持续开源的经费，灯哥在这里先谢谢大家了
 
-// Dual-knob FOC library -  Based on the single-knob library
+// Single-dial FOC library
 
 #ifndef DENGFOC_H
 #define DENGFOC_H
@@ -13,41 +13,28 @@
 
 // 函数声明
 void M0_setPwm(float Ua, float Ub, float Uc);
-void M1_setPwm(float Ua, float Ub, float Uc);
 float M0_setTorque(float Uq, float angle_el);
-float M1_setTorque(float Uq, float angle_el);
 void DFOC_enable();
 void DFOC_disable();
 void DFOC_Vbus(float power_supply);
 void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque = 3.0f, float ramp_rate = 1.0f);
-void DFOC_M1_alignSensor(int _PP, int _DIR, float alignment_torque = 3.0f, float ramp_rate = 1.0f);
 float M0_electricalAngle();
-float M1_electricalAngle();
 
 float serial_motor_target();
 String serialReceiveUserCommand();
 
 // 传感器读取
 float DFOC_M0_Velocity();
-float DFOC_M1_Velocity();
-float DFOC_M0_Angle();
-float DFOC_M1_Angle();
+double DFOC_M0_Angle();
 float DFOC_M0_Current();
-float DFOC_M1_Current();
 
 // PID控制
 void DFOC_M0_SET_ANGLE_PID(float P, float I, float D, float ramp, float limit);
 void DFOC_M0_SET_VEL_PID(float P, float I, float D, float ramp, float limit);
 void DFOC_M0_SET_CURRENT_PID(float P, float I, float D, float ramp);
 
-void DFOC_M1_SET_ANGLE_PID(float P, float I, float D, float ramp, float limit);
-void DFOC_M1_SET_VEL_PID(float P, float I, float D, float ramp, float limit);
-void DFOC_M1_SET_CURRENT_PID(float P, float I, float D, float ramp);
-
 float DFOC_M0_VEL_PID(float error);
 float DFOC_M0_ANGLE_PID(float error);
-float DFOC_M1_VEL_PID(float error);
-float DFOC_M1_ANGLE_PID(float error);
 
 // 简易接口函数
 void DFOC_M0_set_Velocity_Angle(float Target);
@@ -55,19 +42,10 @@ void DFOC_M0_setVelocity(float Target);
 void DFOC_M0_set_Force_Angle(float Target);
 void DFOC_M0_setTorque(float Target);
 
-void DFOC_M1_set_Velocity_Angle(float Target);
-void DFOC_M1_setVelocity(float Target);
-void DFOC_M1_set_Force_Angle(float Target);
-void DFOC_M1_setTorque(float Target);
-
 // 电流力矩环
 void DFOC_M0_setTorque_current(float Target);
-void DFOC_M1_setTorque_current(float Target);
 
 // 运行FOC循环
 void runFOC_M0();
-void runFOC_M1();
-void FOC_read_encoder_both();
-void FOC_read_current_both();
 
 #endif

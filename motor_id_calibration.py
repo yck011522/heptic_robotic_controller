@@ -1,12 +1,12 @@
 # motor_id_calibration.py
-# Interactive calibration tool that identifies physical motors by detecting movement.
+# Interactive calibration tool that identifies physical dials by detecting movement.
 #
-# Connects to all haptic controllers, then prompts you to move each motor one at a
-# time. Detects which device/motor was moved by monitoring telemetry angle changes,
-# and writes the correct motor IDs to each controller's NVS flash.
+# Connects to all haptic controllers, then prompts you to move each dial one at a
+# time. Detects which device/dial was moved by monitoring telemetry angle changes,
+# and writes the correct dial IDs to each controller's NVS flash.
 #
-# Telemetry format: T,motor_id_0,seq,ang0,spd0,tor0,foc_rate
-#   ang0 is at index 3 (decidegrees)
+# Telemetry format: T,dial_id,seq,ang,spd,tor,foc_rate,status_bits
+#   ang is at index 3 (decidegrees)
 
 import serial
 import time
@@ -69,7 +69,7 @@ class DeviceMonitor:
                         pass
 
     def get_motion(self):
-        """Return ang0_range — how much the motor moved."""
+        """Return angle range — how much the dial moved."""
         with self.lock:
 
             def value_range(vals):
@@ -137,11 +137,11 @@ def detect_motion(monitors, duration=MOTION_DETECT_WINDOW):
     return best_monitor, best_motion
 
 
-def run_calibration(starting_motor_id=11):
+def run_calibration(starting_dial_id=11):
     """Interactive calibration session.
 
-    starting_motor_id: First motor ID to assign (e.g. 11 -> 11,12,13,...
-                       or 21 -> 21,22,23,...). Default is 11.
+    starting_dial_id: First dial ID to assign (e.g. 11 -> 11,12,13,...
+                      or 21 -> 21,22,23,...). Default is 11.
     """
 
     print("=" * 60)
@@ -155,21 +155,21 @@ def run_calibration(starting_motor_id=11):
         print("No controllers found. Check USB connections.")
         return
 
-    total_motors = len(monitors)
-    motor_ids = list(range(starting_motor_id, starting_motor_id + total_motors))
-    print(f"\nFound {len(monitors)} controller(s) = {total_motors} motor(s) total.")
-    print(f"Motor IDs to assign: {motor_ids}")
-    print(f"We will identify each motor one at a time.\n")
+    total_dials = len(monitors)
+    dial_ids = list(range(starting_dial_id, starting_dial_id + total_dials))
+    print(f"\nFound {len(monitors)} controller(s) = {total_dials} dial(s) total.")
+    print(f"Dial IDs to assign: {dial_ids}")
+    print(f"We will identify each dial one at a time.\n")
 
-    # Track assignments: monitor -> assigned motor_id
+    # Track assignments: monitor -> assigned dial_id
     assignments = {mon.port: None for mon in monitors}
     identified_ports = set()  # ports already identified
 
-    for i, motor_id in enumerate(motor_ids):
+    for i, dial_id in enumerate(dial_ids):
         while True:
             print("-" * 60)
             input(
-                f">>> Move motor #{motor_id} ({i+1}/{total_motors}) now, then press Enter... "
+                f">>> Move dial #{dial_id} ({i+1}/{total_dials}) now, then press Enter... "
             )
             print(f"    Watching for motion ({MOTION_DETECT_WINDOW}s)...")
 
@@ -185,7 +185,7 @@ def run_calibration(starting_motor_id=11):
                 prev_id = assignments[mon.port]
                 print(
                     f"    Detected {mon.port}, but that was already "
-                    f"assigned as motor #{prev_id}. Try a different motor."
+                    f"assigned as dial #{prev_id}. Try a different dial."
                 )
                 continue
 
@@ -193,7 +193,7 @@ def run_calibration(starting_motor_id=11):
                 f"    Detected: {mon.port} "
                 f"(moved {motion} decideg = {motion/10:.1f} deg)"
             )
-            assignments[mon.port] = motor_id
+            assignments[mon.port] = dial_id
             identified_ports.add(mon.port)
             break
 
@@ -204,7 +204,7 @@ def run_calibration(starting_motor_id=11):
     print("=" * 60)
     for mon in monitors:
         mid = assignments[mon.port]
-        print(f"  {mon.port}: motor_id = #{mid}")
+        print(f"  {mon.port}: dial_id = #{mid}")
 
     # Confirm before writing
     print()
@@ -225,10 +225,10 @@ def run_calibration(starting_motor_id=11):
         confirmed = assign_identity(port, mid)
         print(f"  {port}: wrote {mid}, confirmed = {confirmed}")
 
-    print("\nDone! Motor IDs are saved to flash and will persist across reboots.")
+    print("\nDone! Dial IDs are saved to flash and will persist across reboots.")
 
 
 if __name__ == "__main__":
-    user_input = input("Enter starting motor ID [11]: ").strip()
+    user_input = input("Enter starting dial ID [11]: ").strip()
     start_id = int(user_input) if user_input else 11
-    run_calibration(starting_motor_id=start_id)
+    run_calibration(starting_dial_id=start_id)

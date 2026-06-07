@@ -60,13 +60,8 @@ void Sensor_AS5600::Sensor_update()
     angle_prev_ts = micros();
     float d_angle = val - angle_prev;
     // 圈数检测
-    if (abs(d_angle) > (0.8f * _2PI))
+    if (fabsf(d_angle) > (0.8f * _2PI))
         full_rotations += (d_angle > 0) ? -1 : 1;
-    // Avoid overflow
-    if (abs(full_rotations) > 100)
-    {
-        full_rotations = 0;
-    }
     angle_prev = val;
 }
 
@@ -75,15 +70,15 @@ float Sensor_AS5600::getMechanicalAngle()
     return angle_prev;
 }
 
-float Sensor_AS5600::getAngle()
+double Sensor_AS5600::getAngle()
 {
-    return (float)full_rotations * _2PI + angle_prev;
+    return (double)full_rotations * _2PI + angle_prev;
 }
 
 float Sensor_AS5600::getVelocity()
 {
     // 计算采样时间
-    float Ts = (angle_prev_ts - vel_angle_prev_ts) * 1e-6;
+    float Ts = (float)(uint32_t)(angle_prev_ts - vel_angle_prev_ts) * 1e-6f;
     // 快速修复奇怪的情况（微溢出）
     if (Ts <= 0)
         Ts = 1e-3f;

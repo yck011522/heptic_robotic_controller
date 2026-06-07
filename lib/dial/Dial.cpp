@@ -1,41 +1,66 @@
 #include "Dial.h"
 #include "DengFOC.h"
 
-Dial::Dial(int idx, DialConfig *c)
+Dial::Dial(DialConfig *c)
 {
-    motor_index = idx;             // Store motor index referencing
     cfg = c;                       // Bind to configuration structure
     last_vibration_time_local = 0; // Initialize vibration timer
     last_angle = 0.0;              // Initialize angle tracking
+    last_speed = 0.0f;
+    last_torque = 0.0f;
+    logical_angle_offset = 0.0f;
 }
 
 void Dial::begin()
 {
-    // Initialize timing for vibration and kick effects
-    last_vibration_time_local = millis();
-    last_kick_time_local = 0;
+    reset_runtime_state(millis());
+}
+
+double Dial::get_motor_angle()
+{
+    return DFOC_M0_Angle();
+}
+
+float Dial::get_motor_speed()
+{
+    return DFOC_M0_Velocity();
+}
+
+double Dial::get_logical_angle()
+{
+    return get_motor_angle() + logical_angle_offset;
+}
+
+bool Dial::is_out_of_bounds() const
+{
+    return last_angle < cfg->bounds_min_angle || last_angle > cfg->bounds_max_angle;
+}
+
+void Dial::reset_runtime_state(unsigned long now)
+{
+    last_vibration_time_local = now;
+    last_kick_time_local = now;
     kick_state = false;
 }
 
-float Dial::get_motor_angle(int motor_index)
+void Dial::set_current_position(double logical_angle, bool update_tracking_target)
 {
-    // Retrieve angle from appropriate motor based on index
-    return (motor_index == 0) ? DFOC_M0_Angle() : DFOC_M1_Angle();
+    logical_angle_offset = logical_angle - get_motor_angle();
+    last_angle = logical_angle;
+    last_speed = 0.0f;
+    reset_runtime_state(millis());
+
+    if (update_tracking_target)
+        cfg->tracking_position = logical_angle;
 }
 
-float Dial::get_motor_speed(int motor_index)
-{
-    // Retrieve speed from appropriate motor based on index
-    return (motor_index == 0) ? DFOC_M0_Velocity() : DFOC_M1_Velocity();
-}
-
-float Dial::calculate_detent_torque(float current_angle)
+float Dial::calculate_detent_torque(double current_angle)
 {
     // Find nearest detent position and apply spring-like restoration force
-    float nearest_detent_angle = round(current_angle / cfg->detent_distance) * cfg->detent_distance;
-    float error = nearest_detent_angle - current_angle;
+    double nearest_detent_angle = round(current_angle / cfg->detent_distance) * cfg->detent_distance;
+    double error = nearest_detent_angle - current_angle;
     // Compute torque using spring formula: torque = kp * error, where kp is the detent stiffness
-    float torque = cfg->detent_kp * error;
+    float torque = (float)(cfg->detent_kp * error);
 
     // Clamp torque to maximum allowed magnitude
     if (torque > cfg->detent_max_torque)
@@ -45,12 +70,12 @@ float Dial::calculate_detent_torque(float current_angle)
     return torque;
 }
 
-float Dial::calculate_tracking_torque(float current_angle, float current_speed)
+float Dial::calculate_tracking_torque(double current_angle, float current_speed)
 {
-    float error = cfg->tracking_position - current_angle;
+    double error = cfg->tracking_position - current_angle;
 
     // Spring
-    float torque = cfg->tracking_kp * error;
+    float torque = (float)(cfg->tracking_kp * error);
 
     // Damping
     torque -= cfg->tracking_kd * current_speed;
@@ -100,14 +125,14 @@ float Dial::calculate_vibration_torque(unsigned long now)
     return 0.0; // No pulse in this cycle
 }
 
-float Dial::calculate_bounds_torque(float current_angle)
+float Dial::calculate_bounds_torque(double current_angle)
 {
     // Apply corrective torque when angle exceeds bounds (stronger than detent)
     if (current_angle > cfg->bounds_max_angle)
     {
         // Above maximum: apply negative (restoring) torque
-        float error = current_angle - cfg->bounds_max_angle;
-        float torque = -cfg->bounds_kp * error;
+        double error = current_angle - cfg->bounds_max_angle;
+        float torque = (float)(-cfg->bounds_kp * error);
         if (torque < -cfg->bounds_max_torque)
             torque = -cfg->bounds_max_torque;
         return torque;
@@ -115,8 +140,8 @@ float Dial::calculate_bounds_torque(float current_angle)
     else if (current_angle < cfg->bounds_min_angle)
     {
         // Below minimum: apply positive (restoring) torque
-        float error = cfg->bounds_min_angle - current_angle;
-        float torque = cfg->bounds_kp * error;
+        double error = cfg->bounds_min_angle - current_angle;
+        float torque = (float)(cfg->bounds_kp * error);
         if (torque > cfg->bounds_max_torque)
             torque = cfg->bounds_max_torque;
         return torque;
@@ -127,19 +152,20 @@ float Dial::calculate_bounds_torque(float current_angle)
 float Dial::calculate_composite_torque(unsigned long now)
 {
     // Combine all enabled torque effects into single control value
-    last_angle = get_motor_angle(motor_index);
-    last_speed = get_motor_speed(motor_index);
+    double current_angle = get_logical_angle();
+    last_angle = current_angle;
+    last_speed = get_motor_speed();
     float total = 0.0;
 
     // Add individual torque contributions based on enabled features
     if (cfg->enable_detent)
-        total += calculate_detent_torque(last_angle);
+        total += calculate_detent_torque(current_angle);
     if (cfg->enable_tracking)
-        total += calculate_tracking_torque(last_angle, last_speed);
+        total += calculate_tracking_torque(current_angle, last_speed);
     if (cfg->enable_vibration)
         total += calculate_vibration_torque(now);
     if (cfg->enable_bounds_restoration)
-        total += calculate_bounds_torque(last_angle);
+        total += calculate_bounds_torque(current_angle);
 
     // Out-of-bounds kicking: additional pulsed corrective force when outside bounds
     if (cfg->enable_oob_kick)
@@ -151,17 +177,11 @@ float Dial::calculate_composite_torque(unsigned long now)
 
 void Dial::apply_torque(float torque, bool use_current_control)
 {
-    // Send calculated torque command to appropriate motor
-    if (motor_index == 0)
-        if (use_current_control)
-            DFOC_M0_setTorque_current(torque);
-        else
-             DFOC_M0_setTorque(torque);
+    if (use_current_control)
+        DFOC_M0_setTorque_current(torque);
     else
-        if (use_current_control)
-            DFOC_M1_setTorque_current(torque);
-        else
-            DFOC_M1_setTorque(torque);
+        DFOC_M0_setTorque(torque);
+
     last_torque = torque;
 }
 

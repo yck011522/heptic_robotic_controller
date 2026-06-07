@@ -45,37 +45,39 @@ private:
     unsigned long last_vibration_time_local; // Timestamp of last vibration pulse
     unsigned long last_kick_time_local;      // Timestamp of last out-of-bounds kick
     bool kick_state;                         // State flag for kick pulse (unused in current implementation)
+    double logical_angle_offset;             // Offset between raw sensor angle and logical dial angle
 
 public:
-    int motor_index;   // Which motor this dial controls (0 or 1)
     DialConfig *cfg;   // Pointer to configuration settings
     float last_torque; // Last calculated torque value (A)
-    float last_angle;  // Last measured motor angle (radians)
-    float last_speed;  // Last measured motor speed (rad/s)
+    double last_angle; // Last logical dial angle (radians)
+    float last_speed;  // Last measured physical motor speed (rad/s)
 
-    Dial(int idx = 0, DialConfig *c = nullptr);
+    Dial(DialConfig *c = nullptr);
 
     void begin();
 
-    /// @brief Get motor angle (supports both M0 and M1)
-    /// @param motor_index 0 for M0, 1 for M1
-    /// @return Current motor angle (radians)
-    float get_motor_angle(int motor_index);
+    double get_motor_angle();
 
-    /// @brief Get motor speed (supports both M0 and M1)
-    /// @param motor_index 0 for M0, 1 for M1
-    /// @return Current motor speed (rad/s)
-    float get_motor_speed(int motor_index);
+    float get_motor_speed();
 
-    float calculate_detent_torque(float current_angle);
+    double get_logical_angle();
 
-    float calculate_tracking_torque(float current_angle, float current_speed);
+    bool is_out_of_bounds() const;
+
+    void reset_runtime_state(unsigned long now);
+
+    void set_current_position(double logical_angle, bool update_tracking_target);
+
+    float calculate_detent_torque(double current_angle);
+
+    float calculate_tracking_torque(double current_angle, float current_speed);
 
     float calculate_oob_kick_torque(unsigned long now);
 
     float calculate_vibration_torque(unsigned long now);
 
-    float calculate_bounds_torque(float current_angle);
+    float calculate_bounds_torque(double current_angle);
 
     float calculate_composite_torque(unsigned long now);
 

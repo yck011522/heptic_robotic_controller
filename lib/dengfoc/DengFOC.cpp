@@ -1,23 +1,15 @@
 /**
  * @file DengFOC.cpp
- * @brief Dual Motor Field-Oriented Control (FOC) Driver
+ * @brief Single Motor Field-Oriented Control (FOC) Driver
  *
- * This library implements Field-Oriented Control for two BLDC motors with:
+ * This library implements Field-Oriented Control for one BLDC motor with:
  * - AS5600 magnetic angle encoders for commutation feedback
  * - Inline current sensing for torque control
  * - Three-phase PWM generation
  * - Cascaded PID control loops (velocity, angle, current)
  * - Low-pass filtering for sensor noise reduction
  *
- * Architecture: Dual independent motor control with synchronized sensor updates
- * Target: ESP32 microcontroller with dual motor FOC capability
- *
- * NOTE: This library supports two operating modes:
- * - Single-motor mode: Use runFOC_M0() / runFOC_M1() individually. No FreeRTOS
- *   dependency; works on single-core targets.
- * - Dual-motor mode: Use runFOC_both(), which spawns a FreeRTOS task on Core 0
- *   to read the S1 I2C encoder in parallel with the main loop on Core 1.
- *   Requires a dual-core MCU (e.g. ESP32).
+ * Architecture: Single motor control for the ESP32 haptic dial board.
  */
 
 #include <Arduino.h>
@@ -26,9 +18,6 @@
 #include "pid.h"
 #include "InlineCurrent.h"
 #include "DengFOC.h"
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#include <freertos/semphr.h>
 
 // ==================== UTILITY MACROS ====================
 /// Constrains value to range [low, high]
@@ -54,17 +43,6 @@ int M0_pwmA = 32; ///< Phase A PWM pin (GPIO 32)
 int M0_pwmB = 33; ///< Phase B PWM pin (GPIO 33)
 int M0_pwmC = 25; ///< Phase C PWM pin (GPIO 25)
 
-// ==================== MOTOR 1 PARAMETERS ====================
-/// Zero electrical angle offset for sensor alignment (radians)
-float M1_zero_electric_angle = 0;
-/// Pole pairs and rotation direction
-int M1_PP = 1;  ///< Number of magnetic pole pairs
-int M1_DIR = 1; ///< Rotation direction: 1 or -1
-/// PWM output pins (three-phase)
-int M1_pwmA = 26; ///< Phase A PWM pin (GPIO 26)
-int M1_pwmB = 27; ///< Phase B PWM pin (GPIO 27)
-int M1_pwmC = 14; ///< Phase C PWM pin (GPIO 14)
-
 // ==================== CONTROL ENABLE ====================
 /// Master enable pin for motor driver (GPIO 12)
 int enable = 12;
@@ -72,10 +50,8 @@ int enable = 12;
 // ==================== SENSOR FILTERS ====================
 /// Low-pass filters for velocity (cutoff ~1 kHz at 100 Hz sample rate)
 LowPassFilter M0_Vel_Flt = LowPassFilter(0.01); ///< Motor 0 velocity filter
-LowPassFilter M1_Vel_Flt = LowPassFilter(0.01); ///< Motor 1 velocity filter
 /// Low-pass filters for current (cutoff ~500 Hz at 100 Hz sample rate)
 LowPassFilter M0_Curr_Flt = LowPassFilter(0.05); ///< Motor 0 current filter
-LowPassFilter M1_Curr_Flt = LowPassFilter(0.05); ///< Motor 1 current filter
 
 // ==================== PID CONTROLLERS ====================
 /**
@@ -112,18 +88,11 @@ PIDController M0_vel_loop(2, 0, 0, 100000, voltage_power_supply / 2);
 PIDController M0_angle_loop(2, 0, 0, 100000, 100);
 PIDController M0_current_loop(1.2, 0, 0, 100000, 12.6);
 
-// Motor 1: Velocity loop, Angle loop, Current loop
-PIDController M1_vel_loop(2, 0, 0, 100000, voltage_power_supply / 2);
-PIDController M1_angle_loop(2, 0, 0, 100000, 100);
-PIDController M1_current_loop(1.2, 0, 0, 100000, 12.6);
-
 // ==================== SENSORS ====================
-/// AS5600 I2C magnetic encoders for commutation feedback
+/// AS5600 I2C magnetic encoder for commutation feedback
 Sensor_AS5600 S0 = Sensor_AS5600(0); ///< Motor 0 angle encoder
-Sensor_AS5600 S1 = Sensor_AS5600(1); ///< Motor 1 angle encoder
-/// I2C buses (different ports for simultaneous dual motor operation)
+/// I2C bus for encoder operation
 TwoWire S0_I2C = TwoWire(0); ///< I2C bus 0 (GPIO 19=SDA, 18=SCL)
-TwoWire S1_I2C = TwoWire(1); ///< I2C bus 1 (GPIO 23=SDA, 5=SCL)
 
 // ==================== CLARK/PARK TRANSFORM CONSTANTS ====================
 /// Inverse square root of 3 for abc-to-dq transformation
@@ -142,7 +111,6 @@ TwoWire S1_I2C = TwoWire(1); ///< I2C bus 1 (GPIO 23=SDA, 5=SCL)
 // ==================== CURRENT SENSORS ====================
 /// Inline current sensing for direct torque feedback
 CurrSense CS_M0 = CurrSense(0); ///< Motor 0 phase current sensor
-CurrSense CS_M1 = CurrSense(1); ///< Motor 1 phase current sensor
 
 // ==================== PID CONFIGURATION FUNCTIONS ====================
 // Motor 0 PID setters
@@ -192,53 +160,6 @@ void DFOC_M0_SET_CURRENT_PID(float P, float I, float D, float ramp)
   M0_current_loop.output_ramp = ramp;
 }
 
-// Motor 1 PID setters
-/// @brief Configure Motor 1 velocity loop PID parameters
-/// Input: velocity error (rad/s), Output: voltage command (V) to motor
-/// @param P Proportional gain (V per rad/s error)
-/// @param I Integral gain
-/// @param D Derivative gain
-/// @param ramp Output ramp rate (V/s) - limits voltage acceleration
-/// @param limit Maximum output voltage (V) clamping
-void DFOC_M1_SET_VEL_PID(float P, float I, float D, float ramp, float limit)
-{
-  M1_vel_loop.P = P;
-  M1_vel_loop.I = I;
-  M1_vel_loop.D = D;
-  M1_vel_loop.output_ramp = ramp;
-  M1_vel_loop.limit = limit;
-}
-
-/// @brief Configure Motor 1 angle/position loop PID parameters
-/// Input: angle error (degrees), Output: velocity command (rad/s) to velocity loop
-/// @param P Proportional gain (rad/s per degree error)
-/// @param I Integral gain
-/// @param D Derivative gain
-/// @param ramp Output ramp rate (rad/s²) - limits velocity acceleration
-/// @param limit Maximum velocity command (rad/s) clamping
-void DFOC_M1_SET_ANGLE_PID(float P, float I, float D, float ramp, float limit)
-{
-  M1_angle_loop.P = P;
-  M1_angle_loop.I = I;
-  M1_angle_loop.D = D;
-  M1_angle_loop.output_ramp = ramp;
-  M1_angle_loop.limit = limit;
-}
-
-/// @brief Configure Motor 1 current/torque loop PID parameters
-/// Input: current error (A), Output: voltage command (V) to motor (voltage-source current control)
-/// @param P Proportional gain (V per amp of current error)
-/// @param I Integral gain
-/// @param D Derivative gain
-/// @param ramp Output ramp rate (V/s) - limits voltage acceleration
-void DFOC_M1_SET_CURRENT_PID(float P, float I, float D, float ramp)
-{
-  M1_current_loop.P = P;
-  M1_current_loop.I = I;
-  M1_current_loop.D = D;
-  M1_current_loop.output_ramp = ramp;
-}
-
 // ==================== PID ACCESSOR FUNCTIONS ====================
 /// @brief Execute Motor 0 velocity PID controller
 /// Converts velocity error into motor voltage command
@@ -256,24 +177,6 @@ float DFOC_M0_VEL_PID(float error)
 float DFOC_M0_ANGLE_PID(float error)
 {
   return M0_angle_loop(error);
-}
-
-/// @brief Execute Motor 1 velocity PID controller
-/// Converts velocity error into motor voltage command
-/// @param error Velocity error (target - actual) in rad/s
-/// @return PID output voltage command (V) for motor torque control
-float DFOC_M1_VEL_PID(float error)
-{
-  return M1_vel_loop(error);
-}
-
-/// @brief Execute Motor 1 angle/position PID controller
-/// Converts angle error into velocity command for velocity loop
-/// @param error Angle error (target - actual) in degrees
-/// @return PID output velocity command (rad/s) for velocity loop setpoint
-float DFOC_M1_ANGLE_PID(float error)
-{
-  return M1_angle_loop(error);
 }
 
 // ==================== BASIC UTILITY FUNCTIONS ====================
@@ -309,26 +212,6 @@ void M0_setPwm(float Ua, float Ub, float Uc)
   ledcWrite(2, dc_c * 255);
 }
 
-/// @brief Set Motor 1 three-phase PWM outputs
-/// @param Ua Phase A voltage (0 to Vbus)
-/// @param Ub Phase B voltage (0 to Vbus)
-/// @param Uc Phase C voltage (0 to Vbus)
-/// @note Internally clips values to valid PWM range [0, Vbus] and converts to 8-bit duty cycle
-void M1_setPwm(float Ua, float Ub, float Uc)
-{
-  Ua = _constrain(Ua, 0.0f, voltage_power_supply);
-  Ub = _constrain(Ub, 0.0f, voltage_power_supply);
-  Uc = _constrain(Uc, 0.0f, voltage_power_supply);
-
-  float dc_a = _constrain(Ua / voltage_power_supply, 0.0f, 1.0f);
-  float dc_b = _constrain(Ub / voltage_power_supply, 0.0f, 1.0f);
-  float dc_c = _constrain(Uc / voltage_power_supply, 0.0f, 1.0f);
-
-  ledcWrite(3, dc_a * 255);
-  ledcWrite(4, dc_b * 255);
-  ledcWrite(5, dc_c * 255);
-}
-
 // ==================== TORQUE CONTROL FUNCTIONS ====================
 /// @brief Set Motor 0 torque using inverse Park transform
 /// Converts q-axis voltage command to three-phase PWM using electrical angle
@@ -355,34 +238,6 @@ float M0_setTorque(float Uq, float angle_el)
   float Uc = (-Ualpha - _SQRT3 * Ubeta) * 0.5f + half_vbus;
 
   M0_setPwm(Ua, Ub, Uc);
-  return Uq;
-}
-
-/// @brief Set Motor 1 torque using inverse Park transform
-/// Converts q-axis voltage command to three-phase PWM using electrical angle
-/// @param Uq q-axis voltage command (-Vbus/2 to +Vbus/2), proportional to torque
-/// @param angle_el Electrical angle for FOC alignment (radians)
-/// @return Constrained Uq command that was applied
-/// @note Uses Park (dq -> alphabeta) and SVM transforms for commutation
-float M1_setTorque(float Uq, float angle_el)
-{
-  Uq = _constrain(Uq, -(voltage_power_supply) / 2, (voltage_power_supply) / 2);
-  angle_el = _normalizeAngle(angle_el);
-
-  // Inverse Park: dq -> alphabeta (convert q-axis voltage to cartesian space)
-  float sa = sinf(angle_el);
-  float ca = cosf(angle_el);
-  float Ualpha = -Uq * sa;
-  float Ubeta = Uq * ca;
-
-  // Inverse Clarke: alphabeta -> abc (convert cartesian to three-phase)
-  // Adds DC offset of Vbus/2 to center PWM around mid-rail
-  float half_vbus = voltage_power_supply * 0.5f;
-  float Ua = Ualpha + half_vbus;
-  float Ub = (_SQRT3 * Ubeta - Ualpha) * 0.5f + half_vbus;
-  float Uc = (-Ualpha - _SQRT3 * Ubeta) * 0.5f + half_vbus;
-
-  M1_setPwm(Ua, Ub, Uc);
   return Uq;
 }
 
@@ -446,17 +301,6 @@ float M0_electricalAngle()
   return _normalizeAngle((float)(M0_DIR * M0_PP) * S0.getMechanicalAngle() - M0_zero_electric_angle);
 }
 
-/// @brief Calculate Motor 1 electrical angle for FOC commutation
-/// Converts mechanical angle from encoder, applies pole pair scaling and direction
-/// @return Electrical angle in radians [0, 2*PI), accounting for PP and direction
-float M1_electricalAngle()
-{
-  // Electrical angle = (Mechanical angle × PP × DIR) - Zero offset
-  // Accounts for motor pole pairs and calibration offset
-  // Result normalized to [0, 2*PI) for commutation alignment
-  return _normalizeAngle((float)(M1_DIR * M1_PP) * S1.getMechanicalAngle() - M1_zero_electric_angle);
-}
-
 // ==================== SENSOR ALIGNMENT FUNCTIONS ====================
 /// @brief Align Motor 0 encoder to motor pole positions (calibration routine)
 /// Applies fixed torque at 3pi/2 position, waits for magnetic settling, then records zero offset
@@ -491,53 +335,13 @@ void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_r
   M0_setTorque(0, _3PI_2);
 }
 
-/// @brief Align Motor 1 encoder to motor pole positions (calibration routine)
-/// Applies fixed torque at 3pi/2 position, waits for magnetic settling, then records zero offset
-/// MUST be called during initialization with unloaded motor
-/// @param _PP Number of pole pairs for this motor
-/// @param _DIR Rotation direction: 1=CCW, -1=CW
-/// @note Blocks for 1 second during alignment. Motor will experience brief torque pulse
-void DFOC_M1_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_rate)
-{
-  // Configure motor parameters
-  M1_PP = _PP;
-  M1_DIR = _DIR;
-
-  // Apply holding torque at 3pi/2 (270°) to align rotor with known position
-  // Gradual ramp to holding torque to prevent mechanical shock
-  // Step increment = ramp_rate (torque/s) × 0.1s (100ms per step)
-  float step = fmaxf(ramp_rate * 0.1f, 0.001f);
-  for (float t = 0; t <= alignment_torque; t += step) {
-    M1_setTorque(t, _3PI_2);
-    delay(100);
-  }
-
-  M1_setTorque(alignment_torque, _3PI_2);
-  delay(1000); // Wait for magnetic settling
-
-  // Read encoder angle at known rotor position to determine zero offset
-  S1.Sensor_update();
-  M1_zero_electric_angle = M1_electricalAngle();
-
-  // Stop motor
-  M1_setTorque(0, _3PI_2);
-}
-
 // ==================== SENSOR GETTER FUNCTIONS ====================
 /// @brief Read Motor 0 mechanical angle (post-alignment)
 /// @return Mechanical angle in radians, accounting for direction setting
-float DFOC_M0_Angle()
+double DFOC_M0_Angle()
 {
   // Returns the mechanical angle in radians
-  return M0_DIR * S0.getAngle();
-}
-
-/// @brief Read Motor 1 mechanical angle (post-alignment)
-/// @return Mechanical angle in radians, accounting for direction setting
-float DFOC_M1_Angle()
-{
-  // Returns the mechanical angle in radians
-  return M1_DIR * S1.getAngle();
+  return (double)M0_DIR * S0.getAngle();
 }
 
 // ==================== CURRENT CALCULATION FUNCTIONS ====================
@@ -573,17 +377,6 @@ float DFOC_M0_Current()
   return I_q_M0_flit;
 }
 
-/// @brief Read Motor 1 q-axis current (torque feedback) with low-pass filtering
-/// Transforms phase currents to dq frame and applies low-pass filter
-/// @return Filtered q-axis current (A), proportional to motor torque
-/// @note Must call runFOC() first to update sensor data
-float DFOC_M1_Current()
-{
-  float I_q_M1_ori = cal_Iq_Id(CS_M1.current_a, CS_M1.current_b, M1_electricalAngle());
-  float I_q_M1_flit = M1_Curr_Flt(I_q_M1_ori);
-  return I_q_M1_flit;
-}
-
 /// @brief Read Motor 0 velocity with low-pass filtering
 /// @return Filtered angular velocity (rad/s), accounting for direction setting
 /// @note Must call runFOC() first to update sensor data
@@ -592,16 +385,6 @@ float DFOC_M0_Velocity()
   float vel_M0_ori = S0.getVelocity();
   float vel_M0_flit = M0_Vel_Flt(M0_DIR * vel_M0_ori);
   return vel_M0_flit;
-}
-
-/// @brief Read Motor 1 velocity with low-pass filtering
-/// @return Filtered angular velocity (rad/s), accounting for direction setting
-/// @note Must call runFOC() first to update sensor data
-float DFOC_M1_Velocity()
-{
-  float vel_M1_ori = S1.getVelocity();
-  float vel_M1_flit = M1_Vel_Flt(M1_DIR * vel_M1_ori);
-  return vel_M1_flit;
 }
 
 // ==================== SERIAL COMMUNICATION ====================
@@ -655,14 +438,6 @@ void DFOC_M0_setTorque(float Target)
   M0_setTorque(Target, M0_electricalAngle());
 }
 
-/// @brief Set Motor 1 torque command (simplified wrapper)
-/// Automatically applies current electrical angle for FOC
-/// @param Target q-axis voltage command (-Vbus/2 to +Vbus/2)
-void DFOC_M1_setTorque(float Target)
-{
-  M1_setTorque(Target, M1_electricalAngle());
-}
-
 // ==================== CASCADED PID CONTROL LOOPS ====================
 /// @brief Motor 0 position control with velocity feedforward (cascaded loops)
 /// Signal flow: angle_error -> ANGLE_PID -> velocity_target -> VELOCITY_PID -> voltage_command -> motor
@@ -671,15 +446,6 @@ void DFOC_M1_setTorque(float Target)
 void DFOC_M0_set_Velocity_Angle(float Target)
 {
   DFOC_M0_setTorque(DFOC_M0_VEL_PID(DFOC_M0_ANGLE_PID((Target - DFOC_M0_Angle()) * 180 / PI) - DFOC_M0_Velocity()));
-}
-
-/// @brief Motor 1 position control with velocity feedforward (cascaded loops)
-/// Signal flow: angle_error -> ANGLE_PID -> velocity_target -> VELOCITY_PID -> voltage_command -> motor
-/// @param Target Target mechanical angle (radians)
-/// @note ANGLE_PID output (velocity) is subtracted from actual velocity as error input to VEL_PID
-void DFOC_M1_set_Velocity_Angle(float Target)
-{
-  DFOC_M1_setTorque(DFOC_M1_VEL_PID(DFOC_M1_ANGLE_PID((Target - DFOC_M1_Angle()) * 180 / PI) - DFOC_M1_Velocity()));
 }
 
 /// @brief Motor 0 velocity control (standalone velocity loop)
@@ -691,15 +457,6 @@ void DFOC_M0_setVelocity(float Target)
   DFOC_M0_setTorque(DFOC_M0_VEL_PID((Target - DFOC_M0_Velocity()) * 180 / PI));
 }
 
-/// @brief Motor 1 velocity control (standalone velocity loop)
-/// Signal flow: velocity_error -> VELOCITY_PID -> voltage_command -> motor
-/// @param Target Target angular velocity (rad/s)
-/// @note Direct velocity control without position loop
-void DFOC_M1_setVelocity(float Target)
-{
-  DFOC_M1_setTorque(DFOC_M1_VEL_PID((Target - DFOC_M1_Velocity()) * 180 / PI));
-}
-
 /// @brief Motor 0 position control (stiff direct mode)
 /// Signal flow: angle_error -> ANGLE_PID -> voltage_command -> motor (no velocity limiting)
 /// @param Target Target mechanical angle (radians)
@@ -707,15 +464,6 @@ void DFOC_M1_setVelocity(float Target)
 void DFOC_M0_set_Force_Angle(float Target)
 {
   DFOC_M0_setTorque(DFOC_M0_ANGLE_PID((Target - DFOC_M0_Angle()) * 180 / PI));
-}
-
-/// @brief Motor 1 position control (stiff direct mode)
-/// Signal flow: angle_error -> ANGLE_PID -> voltage_command -> motor (no velocity limiting)
-/// @param Target Target mechanical angle (radians)
-/// @note Proportional-only position control - applies voltage proportional to angle error
-void DFOC_M1_set_Force_Angle(float Target)
-{
-  DFOC_M1_setTorque(DFOC_M1_ANGLE_PID((Target - DFOC_M1_Angle()) * 180 / PI));
 }
 
 // ==================== CURRENT/TORQUE CONTROL ====================
@@ -732,84 +480,9 @@ void DFOC_M0_setTorque_current(float Target)
   M0_setTorque(M0_current_loop(Target - I_q), angle_el);
 }
 
-/// @brief Motor 1 current/torque control (voltage-source current controller)
-/// Signal flow: current_error -> CURRENT_PID -> voltage_command -> motor
-/// Maintains precise motor current (and thus torque) by adjusting applied voltage
-/// @param Target Target q-axis current (A)
-/// @note Current loop K_p = 1.2 V/A => 1.2V applied per amp of current error
-void DFOC_M1_setTorque_current(float Target)
-{
-  // Compute electrical angle once and reuse for both current measurement and torque output
-  float angle_el = M1_electricalAngle();
-  float I_q = M1_Curr_Flt(cal_Iq_Id(CS_M1.current_a, CS_M1.current_b, angle_el));
-  M1_setTorque(M1_current_loop(Target - I_q), angle_el);
-}
-
-// ==================== PARALLEL SENSOR READ (FreeRTOS) ====================
-/// Semaphores for parallel I2C sensor reads on separate cores
-static SemaphoreHandle_t s1_start_sem = NULL; ///< Main loop signals S1 task to begin reading
-static SemaphoreHandle_t s1_done_sem = NULL;  ///< S1 task signals main loop that read is complete
-
-/// @brief FreeRTOS task that reads Motor 1 sensor on Core 0
-/// Waits for signal from main loop, reads S1 I2C only (ADC not thread-safe across cores)
-static void s1_sensor_task(void *param)
-{
-  (void)param;
-  for (;;)
-  {
-    // Wait for main loop to signal start
-    xSemaphoreTake(s1_start_sem, portMAX_DELAY);
-    // Read S1 encoder (I2C bus 1) only — ADC reads stay on main core
-    S1.Sensor_update();
-    // Signal main loop that S1 I2C read is complete
-    xSemaphoreGive(s1_done_sem);
-  }
-}
-
-/// @brief Initialize the parallel sensor read task (lazy, called on first runFOC_both)
-static void initParallelSensorTask()
-{
-  s1_start_sem = xSemaphoreCreateBinary();
-  s1_done_sem = xSemaphoreCreateBinary();
-  // Pin S1 sensor task to Core 0 (main loop runs on Core 1)
-  xTaskCreatePinnedToCore(s1_sensor_task, "S1_sensor", 2048, NULL, 1, NULL, 0);
-}
-
-// ==================== SENSOR UPDATE (MAIN LOOP) ====================
-/// @brief Update all sensor data with parallel I2C reads (dual-motor mode)
-/// Kicks off S1 read on Core 0, reads S0 on Core 1, then waits for S1 to finish
-/// On first call, automatically creates the FreeRTOS helper task.
-void FOC_read_encoder_both()
-{
-  // Lazy-init: create the Core 0 task on first call
-  if (s1_start_sem == NULL)
-    initParallelSensorTask();
-  // Signal S1 task to start I2C read (runs on Core 0 in parallel)
-  xSemaphoreGive(s1_start_sem);
-  // Read S0 sensor (I2C bus 0) on this core
-  S0.Sensor_update();
-  // Wait for S1 I2C read to finish (typically already done by now)
-  xSemaphoreTake(s1_done_sem, portMAX_DELAY);
-}
-
-void FOC_read_current_both()
-{
-  // Read both current sensors on main core (analogRead is not thread-safe across cores)
-  CS_M0.getPhaseCurrents();
-  CS_M1.getPhaseCurrents();
-}
-
-
-/// @brief Update sensor data for M0 only (single-motor or sequential mode)
+/// @brief Update sensor data for the single supported motor.
 void runFOC_M0()
 {
   S0.Sensor_update();
   CS_M0.getPhaseCurrents();
-}
-
-/// @brief Update sensor data for M1 only (single-motor or sequential mode)
-void runFOC_M1()
-{
-  S1.Sensor_update();
-  CS_M1.getPhaseCurrents();
 }

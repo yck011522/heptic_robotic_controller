@@ -9,11 +9,13 @@
 #include "DengFOC.h"
 #include "Dial.h"
 #include <Preferences.h>
-#include <stdint.h>
 #include <math.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 // ==================== FIRMWARE VERSION ====================
-#define FW_VERSION "0.2.0"
+#define FW_VERSION "0.3.0"
 
 // ==================== MOTOR CONFIGURATION ====================
 int sensor_dir = 1;       // Sensor direction, reverse this value if motor operation is abnormal
@@ -21,7 +23,7 @@ int motor_pole_pairs = 14; // Motor pole pairs
 
 // ==================== ANGLE LIMITS ====================
 #define MAX_ANGLE_TURNS 30                          // Maximum angle in full rotations (decidegrees = turns * 36000)
-#define MAX_ANGLE_DECIDEG (MAX_ANGLE_TURNS * 36000) // ±720,000 decidegrees = ±20 rotations
+#define MAX_ANGLE_DECIDEG (MAX_ANGLE_TURNS * 36000) // ±1,080,000 decidegrees = ±30 rotations
 
 #define USE_CURRENT_CONTROL false // Set to true to enable current control mode (requires current sensing hardware and configuration)
 
@@ -30,7 +32,7 @@ int motor_pole_pairs = 14; // Motor pole pairs
 
 // ==================== MOTOR IDENTITY (NVS) ====================
 Preferences nvs_prefs;
-uint8_t motor_id_0 = 0; // Persistent identity for motor 0, 0 = unconfigured
+uint8_t dial_id = 0; // Persistent identity for this board, 0 = unconfigured
 
 // ==================== GLOBAL INSTANCES AND CONSTANTS ====================
 
@@ -38,7 +40,7 @@ uint8_t motor_id_0 = 0; // Persistent identity for motor 0, 0 = unconfigured
 DialConfig dial_config0;
 
 // Create per-dial instances (after class definition)
-Dial dial0(0, &dial_config0); // Motor 0 controller
+Dial dial0(&dial_config0);
 
 // Serial input buffer for receiving commands from host
 const int SERIAL_BUFFER_SIZE = 128;
@@ -47,6 +49,7 @@ int serial_buffer_index = 0;
 
 // Protocol state
 uint32_t last_processed_seq = 0; // seq from last processed C command
+bool fault_active = false;
 
 // Telemetry and FOC rate measurement
 unsigned long telemetry_interval_ms = 20; // Telemetry reporting interval (ms) - modifiable via S command
@@ -58,6 +61,137 @@ unsigned long last_foc_rate_time = 0; // Last time FOC rate was calculated
 unsigned long foc_cycle_count = 0;    // Number of FOC cycles in current measurement window
 float last_foc_rate_hz = 0.0;         // Last calculated FOC rate (Hz)
 
+static double decideg_to_rad(long angle_decideg)
+{
+  return (double)angle_decideg * 3.1415926 / 1800.0;
+}
+
+static long rad_to_decideg(double angle_rad)
+{
+  double angle_decideg = angle_rad * 1800.0 / 3.1415926;
+  return (long)(angle_decideg > 0 ? angle_decideg + 0.5f : angle_decideg - 0.5f);
+}
+
+static bool parse_long_field(const char *field, long *value)
+{
+  if (!field || field[0] == '\0')
+    return false;
+
+  char *end = nullptr;
+  long parsed = strtol(field, &end, 10);
+  if (*end != '\0')
+    return false;
+
+  *value = parsed;
+  return true;
+}
+
+static bool parse_uint32_field(const char *field, uint32_t *value)
+{
+  if (!field || field[0] == '\0')
+    return false;
+
+  char *end = nullptr;
+  unsigned long parsed = strtoul(field, &end, 10);
+  if (*end != '\0')
+    return false;
+
+  *value = (uint32_t)parsed;
+  return true;
+}
+
+static bool is_valid_angle_decideg(long angle_decideg)
+{
+  return angle_decideg >= -MAX_ANGLE_DECIDEG && angle_decideg <= MAX_ANGLE_DECIDEG;
+}
+
+static uint16_t build_status_bits()
+{
+  uint16_t status_bits = 0;
+
+  if (dial_config0.enable_tracking)
+    status_bits |= 1u << 0;
+  if (dial_config0.enable_bounds_restoration)
+    status_bits |= 1u << 1;
+  if (dial_config0.enable_oob_kick)
+    status_bits |= 1u << 2;
+  if (dial_config0.enable_detent)
+    status_bits |= 1u << 3;
+  if (dial_config0.enable_vibration)
+    status_bits |= 1u << 4;
+  if (dial0.is_out_of_bounds())
+    status_bits |= 1u << 5;
+  if (fault_active)
+    status_bits |= 1u << 6;
+
+  return status_bits;
+}
+
+static uint8_t load_persistent_dial_id()
+{
+  nvs_prefs.begin("robot", false);
+  uint8_t stored_dial_id = nvs_prefs.getUChar("dial_id", 0);
+  nvs_prefs.end();
+  return stored_dial_id;
+}
+
+static void store_persistent_dial_id(uint8_t new_dial_id)
+{
+  nvs_prefs.begin("robot", false);
+  nvs_prefs.putUChar("dial_id", new_dial_id);
+  nvs_prefs.end();
+}
+
+static bool apply_runtime_parameter(const char *param, long value)
+{
+  float fixed_point_value = (float)value / 1000.0f;
+
+  if (strcmp(param, "tracking_kp") == 0)
+    dial_config0.tracking_kp = fixed_point_value;
+  else if (strcmp(param, "tracking_kd") == 0)
+    dial_config0.tracking_kd = fixed_point_value;
+  else if (strcmp(param, "detent_kp") == 0)
+    dial_config0.detent_kp = fixed_point_value;
+  else if (strcmp(param, "bounds_kp") == 0)
+    dial_config0.bounds_kp = fixed_point_value;
+  else if (strcmp(param, "detent_distance") == 0)
+    dial_config0.detent_distance = fixed_point_value * 3.1415926f / 1800.0f;
+  else if (strcmp(param, "vibration_amplitude") == 0)
+    dial_config0.vibration_amplitude = fixed_point_value;
+  else if (strcmp(param, "oob_kick_amplitude") == 0)
+    dial_config0.oob_kick_amplitude = fixed_point_value;
+  else if (strcmp(param, "tracking_max_torque") == 0)
+    dial_config0.tracking_max_torque = fixed_point_value;
+  else if (strcmp(param, "bounds_max_torque") == 0)
+    dial_config0.bounds_max_torque = fixed_point_value;
+  else if (strcmp(param, "detent_max_torque") == 0)
+    dial_config0.detent_max_torque = fixed_point_value;
+  else if (strcmp(param, "vibration_pulse_interval_ms") == 0)
+    dial_config0.vibration_pulse_interval_ms = value > 0 ? (unsigned long)value : dial_config0.vibration_pulse_interval_ms;
+  else if (strcmp(param, "oob_kick_pulse_interval_ms") == 0)
+    dial_config0.oob_kick_pulse_interval_ms = value > 0 ? (unsigned long)value : dial_config0.oob_kick_pulse_interval_ms;
+  else if (strcmp(param, "enable_tracking") == 0)
+    dial_config0.enable_tracking = (value != 0);
+  else if (strcmp(param, "enable_detent") == 0)
+    dial_config0.enable_detent = (value != 0);
+  else if (strcmp(param, "enable_bounds_restoration") == 0)
+    dial_config0.enable_bounds_restoration = (value != 0);
+  else if (strcmp(param, "enable_oob_kick") == 0)
+    dial_config0.enable_oob_kick = (value != 0);
+  else if (strcmp(param, "enable_vibration") == 0)
+    dial_config0.enable_vibration = (value != 0);
+  else if (strcmp(param, "telemetry_interval") == 0)
+  {
+    if (value <= 0)
+      return false;
+    telemetry_interval_ms = (unsigned long)value;
+  }
+  else
+    return false;
+
+  return true;
+}
+
 // ==================== INITIALIZATION ====================
 
 void setup()
@@ -65,10 +199,7 @@ void setup()
   // Initialize serial communication for debugging
   Serial.begin(230400);
 
-  // Load persistent motor identity from NVS (read-write to create namespace on first boot)
-  nvs_prefs.begin("robot", false);
-  motor_id_0 = nvs_prefs.getUChar("motor_id_0", 0);
-  nvs_prefs.end();
+  dial_id = load_persistent_dial_id();
 
   // Initialize motor enable pin (GPIO 12)
   pinMode(12, OUTPUT);
@@ -89,137 +220,124 @@ void setup()
 
 void parse_host_command(const char *line)
 {
-  // Protocol tokens: comma-separated
-  // First token: command letter (C/S/E)
-  // Second token: seq (uint32)
-
   char copy[SERIAL_BUFFER_SIZE];
   strncpy(copy, line, SERIAL_BUFFER_SIZE - 1);
   copy[SERIAL_BUFFER_SIZE - 1] = '\0';
 
-  // Tokenize
   const char *delim = ",";
   char *token = strtok(copy, delim);
   if (!token)
     return;
 
-  // Command letter
   char cmd = token[0];
 
-  // Seq
   token = strtok(NULL, delim);
-  if (!token)
+  uint32_t seq = 0;
+  if (!parse_uint32_field(token, &seq))
+  {
+    fault_active = true;
     return;
-  uint32_t seq = (uint32_t)strtoul(token, NULL, 10);
+  }
 
   if (cmd == 'C')
   {
-    // Expect: C,seq,pos0[,min0,max0]
-    // pos0 required, min/max optional (if not provided, bounds are not updated)
-    char *f[4];
-    int i = 0;
-    while (i < 4 && (f[i] = strtok(NULL, delim)) != NULL)
-      i++;
+    char *target_str = strtok(NULL, delim);
+    char *min_str = strtok(NULL, delim);
+    char *max_str = strtok(NULL, delim);
+    char *extra = strtok(NULL, delim);
 
-    if (i >= 1)
+    long target_decideg = 0;
+    long min_decideg = 0;
+    long max_decideg = 0;
+
+    if (!target_str || !min_str || !max_str || extra ||
+        !parse_long_field(target_str, &target_decideg) ||
+        !parse_long_field(min_str, &min_decideg) ||
+        !parse_long_field(max_str, &max_decideg) ||
+        !is_valid_angle_decideg(target_decideg) ||
+        !is_valid_angle_decideg(min_decideg) ||
+        !is_valid_angle_decideg(max_decideg) ||
+        min_decideg > max_decideg)
     {
-      long pos0 = atol(f[0]);
-
-      // Convert decidegrees -> radians: rad = decideg * pi / 1800.0
-      float pos0_rad = (float)pos0 * 3.1415926f / 1800.0f;
-
-      dial_config0.tracking_position = pos0_rad;
-
-      if (i >= 3)
-      {
-        long min0 = atol(f[1]);
-        long max0 = atol(f[2]);
-        dial_config0.bounds_min_angle = (float)min0 * 3.1415926f / 1800.0f;
-        dial_config0.bounds_max_angle = (float)max0 * 3.1415926f / 1800.0f;
-      }
-
-      last_processed_seq = seq;
+      fault_active = true;
+      return;
     }
+
+    dial_config0.tracking_position = decideg_to_rad(target_decideg);
+    dial_config0.bounds_min_angle = decideg_to_rad(min_decideg);
+    dial_config0.bounds_max_angle = decideg_to_rad(max_decideg);
+    last_processed_seq = seq;
+    fault_active = false;
+  }
+  else if (cmd == 'R')
+  {
+    char *current_pos_str = strtok(NULL, delim);
+    char *extra = strtok(NULL, delim);
+    long current_pos_decideg = 0;
+
+    if (!current_pos_str || extra ||
+        !parse_long_field(current_pos_str, &current_pos_decideg) ||
+        !is_valid_angle_decideg(current_pos_decideg))
+    {
+      fault_active = true;
+      return;
+    }
+
+    bool update_tracking_target = last_processed_seq <= seq;
+    dial0.set_current_position(decideg_to_rad(current_pos_decideg), update_tracking_target);
+    fault_active = false;
+
+    Serial.print("R,");
+    Serial.println(seq);
   }
   else if (cmd == 'S')
   {
-    // Expect: S,seq,param,value
     char *param = strtok(NULL, delim);
     char *valstr = strtok(NULL, delim);
-    if (param && valstr)
+    char *extra = strtok(NULL, delim);
+    long value = 0;
+
+    if (!param || !valstr || extra || !parse_long_field(valstr, &value))
     {
-      long v = atol(valstr);
-      // Interpret parameter numeric value as fixed-point with 1000 scale
-      float fval = (float)v / 1000.0f;
-
-      // Handle common parameter names
-      if (strcmp(param, "tracking_kp_0") == 0)
-        dial_config0.tracking_kp = fval;
-      else if (strcmp(param, "tracking_kd_0") == 0)
-        dial_config0.tracking_kd = fval;
-      else if (strcmp(param, "detent_kp_0") == 0)
-        dial_config0.detent_kp = fval;
-      else if (strcmp(param, "bounds_kp_0") == 0)
-        dial_config0.bounds_kp = fval;
-      else if (strcmp(param, "detent_distance_0") == 0)
-        dial_config0.detent_distance = fval * 3.1415926f / 1800.0f; // assume value in decideg -> convert to rad
-      else if (strcmp(param, "vibration_amplitude_0") == 0)
-        dial_config0.vibration_amplitude = fval;
-      else if (strcmp(param, "oob_kick_amplitude_0") == 0)
-        dial_config0.oob_kick_amplitude = fval;
-      // Max torque limits
-      else if (strcmp(param, "tracking_max_torque_0") == 0)
-        dial_config0.tracking_max_torque = fval;
-      else if (strcmp(param, "bounds_max_torque_0") == 0)
-        dial_config0.bounds_max_torque = fval;
-      else if (strcmp(param, "detent_max_torque_0") == 0)
-        dial_config0.detent_max_torque = fval;
-      // Timing intervals (raw ms, no 1000x scaling)
-      else if (strcmp(param, "vibration_pulse_interval_ms_0") == 0)
-        dial_config0.vibration_pulse_interval_ms = (unsigned long)v;
-      else if (strcmp(param, "oob_kick_pulse_interval_ms_0") == 0)
-        dial_config0.oob_kick_pulse_interval_ms = (unsigned long)v;
-      // Mode enable/disable flags (value: 0 = disable, non-zero = enable)
-      else if (strcmp(param, "enable_tracking_0") == 0)
-        dial_config0.enable_tracking = (v != 0);
-      else if (strcmp(param, "enable_detent_0") == 0)
-        dial_config0.enable_detent = (v != 0);
-      else if (strcmp(param, "enable_bounds_restoration_0") == 0)
-        dial_config0.enable_bounds_restoration = (v != 0);
-      else if (strcmp(param, "enable_oob_kick_0") == 0)
-        dial_config0.enable_oob_kick = (v != 0);
-      else if (strcmp(param, "enable_vibration_0") == 0)
-        dial_config0.enable_vibration = (v != 0);
-      else if (strcmp(param, "telemetry_interval") == 0)
-        telemetry_interval_ms = (unsigned long)v; // value in ms (no 1000x scaling)
-      // Unknown parameters are ignored
-
-      // Acknowledge: S,seq\n
-      Serial.print("S,");
-      Serial.println(seq);
+      fault_active = true;
+      return;
     }
+
+    apply_runtime_parameter(param, value);
+    Serial.print("S,");
+    Serial.println(seq);
   }
   else if (cmd == 'I')
   {
-    // Identity command, host send: I,seq,<id0>\n to set, I,seq\n to query
-    // Respond with "I,seq,<motor_id_0>\n"
-    char *id0str = strtok(NULL, delim);
-    if (id0str)
+    char *dial_id_str = strtok(NULL, delim);
+    char *extra = strtok(NULL, delim);
+
+    if (extra)
     {
-      motor_id_0 = (uint8_t)atoi(id0str);
-      nvs_prefs.begin("robot", false); // read-write
-      nvs_prefs.putUChar("motor_id_0", motor_id_0);
-      nvs_prefs.end();
+      fault_active = true;
+      return;
     }
-    // Respond with current motor identity
+
+    if (dial_id_str)
+    {
+      long requested_dial_id = 0;
+      if (!parse_long_field(dial_id_str, &requested_dial_id) || requested_dial_id < 0 || requested_dial_id > 255)
+      {
+        fault_active = true;
+        return;
+      }
+
+      dial_id = (uint8_t)requested_dial_id;
+      store_persistent_dial_id(dial_id);
+    }
+
     Serial.print("I,");
     Serial.print(seq);
     Serial.print(",");
-    Serial.println(motor_id_0);
+    Serial.println(dial_id);
   }
   else if (cmd == 'V')
   {
-    // Version query: respond with "V,seq,FW_VERSION\n"
     Serial.print("V,");
     Serial.print(seq);
     Serial.print(",");
@@ -227,7 +345,6 @@ void parse_host_command(const char *line)
   }
   else if (cmd == 'E')
   {
-    // Echo test: host sends "E,seq\n", respond with "E,seq\n"
     Serial.print("E,");
     Serial.println(seq);
   }
@@ -295,35 +412,31 @@ void loop()
     last_foc_rate_time = current_time;
   }
 
-  // ==================== TELEMETRY TRANSMISSION (DengFOC V4 protocol) ====================
-  // Transmit at configured telemetry interval: T,id,seq,ang0,spd0,tor0,foc_rate\n
+  // ==================== TELEMETRY TRANSMISSION ====================
+  // Transmit at configured telemetry interval: T,dial_id,seq,ang,spd,tor,foc_rate,status_bits\n
   if (current_time - last_telemetry_time >= telemetry_interval_ms)
   {
-    // Angle: radians -> decidegrees (0.1 deg per unit)
-    float ang0_deg = dial0.last_angle * 180.0f / 3.1415926f;
-    float ang0_decideg_f = ang0_deg * 10.0f;
-
-    long ang0_decideg = (long)(ang0_decideg_f > 0 ? ang0_decideg_f + 0.5f : ang0_decideg_f - 0.5f);
+    long angle_decideg = rad_to_decideg(dial0.last_angle);
 
     // Clamp to ±MAX_ANGLE_DECIDEG
-    if (ang0_decideg > MAX_ANGLE_DECIDEG)
-      ang0_decideg = MAX_ANGLE_DECIDEG;
-    else if (ang0_decideg < -MAX_ANGLE_DECIDEG)
-      ang0_decideg = -MAX_ANGLE_DECIDEG;
+    if (angle_decideg > MAX_ANGLE_DECIDEG)
+      angle_decideg = MAX_ANGLE_DECIDEG;
+    else if (angle_decideg < -MAX_ANGLE_DECIDEG)
+      angle_decideg = -MAX_ANGLE_DECIDEG;
 
     // Torque: amps -> milliamps
-    float tor0_ma_f = dial0.last_torque * 1000.0f;
-    long tor0_ma = (long)(tor0_ma_f > 0 ? tor0_ma_f + 0.5f : tor0_ma_f - 0.5f);
+    float torque_ma_float = dial0.last_torque * 1000.0f;
+    long torque_ma = (long)(torque_ma_float > 0 ? torque_ma_float + 0.5f : torque_ma_float - 0.5f);
 
     // Clamp torque to ±10000 mA
-    if (tor0_ma > 10000)
-      tor0_ma = 10000;
-    else if (tor0_ma < -10000)
-      tor0_ma = -10000;
+    if (torque_ma > 10000)
+      torque_ma = 10000;
+    else if (torque_ma < -10000)
+      torque_ma = -10000;
 
     // Speed: rad/s -> decidegrees/s (0.1 deg/s per unit)
-    float spd0_decideg_f = dial0.last_speed * 1800.0f / 3.1415926f;
-    long spd0_decideg = (long)(spd0_decideg_f > 0 ? spd0_decideg_f + 0.5f : spd0_decideg_f - 0.5f);
+    float speed_decideg_float = dial0.last_speed * 1800.0f / 3.1415926f;
+    long speed_decideg = (long)(speed_decideg_float > 0 ? speed_decideg_float + 0.5f : speed_decideg_float - 0.5f);
 
     // Compute FOC rate (int Hz) and clamp to allowed range
     long foc_rate_hz = (long)(last_foc_rate_hz + 0.5f);
@@ -332,19 +445,22 @@ void loop()
     if (foc_rate_hz > 2000)
       foc_rate_hz = 2000;
 
-    // Emit: T,motor_id_0,seq,ang0,spd0,tor0,foc_rate\n
+    uint16_t status_bits = build_status_bits();
+
     Serial.print("T,");
-    Serial.print(motor_id_0);
+    Serial.print(dial_id);
     Serial.print(",");
     Serial.print(last_processed_seq);
     Serial.print(",");
-    Serial.print(ang0_decideg);
+    Serial.print(angle_decideg);
     Serial.print(",");
-    Serial.print(spd0_decideg);
+    Serial.print(speed_decideg);
     Serial.print(",");
-    Serial.print(tor0_ma);
+    Serial.print(torque_ma);
     Serial.print(",");
     Serial.print(foc_rate_hz);
+    Serial.print(",");
+    Serial.print(status_bits);
     Serial.println();
 
     last_telemetry_time = current_time;
