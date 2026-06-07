@@ -18,7 +18,7 @@
 #define FW_VERSION "0.3.0"
 
 // ==================== MOTOR CONFIGURATION ====================
-int sensor_dir = 1;       // Sensor direction, reverse this value if motor operation is abnormal
+int sensor_dir = -1;       // Sensor direction, reverse this value if motor operation is abnormal
 int motor_pole_pairs = 14; // Motor pole pairs
 float startup_alignment_torque = 6.0f; // Startup sensor-alignment torque
 
@@ -50,6 +50,7 @@ int serial_buffer_index = 0;
 
 // Protocol state
 uint32_t last_processed_seq = 0; // seq from last processed C command
+bool control_target_received = false;
 bool fault_active = false;
 unsigned long fault_latched_until_ms = 0;
 
@@ -111,7 +112,7 @@ static uint16_t build_status_bits()
 {
   uint16_t status_bits = 0;
 
-  if (dial_config0.enable_tracking)
+  if (dial_config0.enable_tracking && control_target_received)
     status_bits |= 1u << 0;
   if (dial_config0.enable_bounds_restoration)
     status_bits |= 1u << 1;
@@ -213,6 +214,53 @@ static bool apply_runtime_parameter(const char *param, long value)
   return true;
 }
 
+static bool read_runtime_parameter(const char *param, long *value)
+{
+  if (!param || !value)
+    return false;
+
+  if (strcmp(param, "tracking_kp") == 0)
+    *value = (long)(dial_config0.tracking_kp * 1000.0f + (dial_config0.tracking_kp >= 0.0f ? 0.5f : -0.5f));
+  else if (strcmp(param, "tracking_kd") == 0)
+    *value = (long)(dial_config0.tracking_kd * 1000.0f + (dial_config0.tracking_kd >= 0.0f ? 0.5f : -0.5f));
+  else if (strcmp(param, "detent_kp") == 0)
+    *value = (long)(dial_config0.detent_kp * 1000.0f + (dial_config0.detent_kp >= 0.0f ? 0.5f : -0.5f));
+  else if (strcmp(param, "bounds_kp") == 0)
+    *value = (long)(dial_config0.bounds_kp * 1000.0f + (dial_config0.bounds_kp >= 0.0f ? 0.5f : -0.5f));
+  else if (strcmp(param, "detent_distance") == 0)
+    *value = (long)(dial_config0.detent_distance * 1800000.0f / 3.1415926f + (dial_config0.detent_distance >= 0.0f ? 0.5f : -0.5f));
+  else if (strcmp(param, "vibration_amplitude") == 0)
+    *value = (long)(dial_config0.vibration_amplitude * 1000.0f + (dial_config0.vibration_amplitude >= 0.0f ? 0.5f : -0.5f));
+  else if (strcmp(param, "oob_kick_amplitude") == 0)
+    *value = (long)(dial_config0.oob_kick_amplitude * 1000.0f + (dial_config0.oob_kick_amplitude >= 0.0f ? 0.5f : -0.5f));
+  else if (strcmp(param, "tracking_max_torque") == 0)
+    *value = (long)(dial_config0.tracking_max_torque * 1000.0f + (dial_config0.tracking_max_torque >= 0.0f ? 0.5f : -0.5f));
+  else if (strcmp(param, "bounds_max_torque") == 0)
+    *value = (long)(dial_config0.bounds_max_torque * 1000.0f + (dial_config0.bounds_max_torque >= 0.0f ? 0.5f : -0.5f));
+  else if (strcmp(param, "detent_max_torque") == 0)
+    *value = (long)(dial_config0.detent_max_torque * 1000.0f + (dial_config0.detent_max_torque >= 0.0f ? 0.5f : -0.5f));
+  else if (strcmp(param, "vibration_pulse_interval_ms") == 0)
+    *value = (long)dial_config0.vibration_pulse_interval_ms;
+  else if (strcmp(param, "oob_kick_pulse_interval_ms") == 0)
+    *value = (long)dial_config0.oob_kick_pulse_interval_ms;
+  else if (strcmp(param, "enable_tracking") == 0)
+    *value = dial_config0.enable_tracking ? 1 : 0;
+  else if (strcmp(param, "enable_detent") == 0)
+    *value = dial_config0.enable_detent ? 1 : 0;
+  else if (strcmp(param, "enable_bounds_restoration") == 0)
+    *value = dial_config0.enable_bounds_restoration ? 1 : 0;
+  else if (strcmp(param, "enable_oob_kick") == 0)
+    *value = dial_config0.enable_oob_kick ? 1 : 0;
+  else if (strcmp(param, "enable_vibration") == 0)
+    *value = dial_config0.enable_vibration ? 1 : 0;
+  else if (strcmp(param, "telemetry_interval") == 0)
+    *value = (long)telemetry_interval_ms;
+  else
+    return false;
+
+  return true;
+}
+
 // ==================== INITIALIZATION ====================
 
 void setup()
@@ -232,6 +280,8 @@ void setup()
 
   // Initialize per-dial state and timers
   dial0.begin();
+  // Rebase startup position so tracking starts from the present shaft angle.
+  dial0.set_current_position(0.0, true);
 
   // Initialize serial input buffer
   serial_buffer_index = 0;
@@ -288,6 +338,7 @@ void parse_host_command(const char *line)
     dial_config0.bounds_min_angle = decideg_to_rad(min_decideg);
     dial_config0.bounds_max_angle = decideg_to_rad(max_decideg);
     last_processed_seq = seq;
+    control_target_received = true;
     clear_fault_if_not_latched(millis());
   }
   else if (cmd == 'R')
@@ -327,6 +378,26 @@ void parse_host_command(const char *line)
     clear_fault_if_not_latched(millis());
     Serial.print("S,");
     Serial.println(seq);
+  }
+  else if (cmd == 'G')
+  {
+    char *param = strtok(NULL, delim);
+    char *extra = strtok(NULL, delim);
+    long value = 0;
+
+    if (!param || extra || !read_runtime_parameter(param, &value))
+    {
+      fault_active = true;
+      return;
+    }
+
+    clear_fault_if_not_latched(millis());
+    Serial.print("G,");
+    Serial.print(seq);
+    Serial.print(",");
+    Serial.print(param);
+    Serial.print(",");
+    Serial.println(value);
   }
   else if (cmd == 'I')
   {
@@ -427,8 +498,17 @@ void loop()
   // ==================== FOC & MOTOR CONTROL ====================
   runFOC_M0();
 
-  // Calculate all enabled torque effects and apply to motor
-  dial0.calculate_and_apply_composite_torque(USE_CURRENT_CONTROL);
+  // Do not apply tracking torque until the host has provided an explicit target.
+  if (control_target_received)
+  {
+    dial0.calculate_and_apply_composite_torque(USE_CURRENT_CONTROL);
+  }
+  else
+  {
+    dial0.last_angle = dial0.get_logical_angle();
+    dial0.last_speed = dial0.get_motor_speed();
+    dial0.apply_torque(0.0f, USE_CURRENT_CONTROL);
+  }
 
   // ==================== FOC RATE MEASUREMENT ====================
   // Measure FOC rate over independent measurement window (decoupled from telemetry interval)

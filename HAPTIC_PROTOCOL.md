@@ -231,6 +231,10 @@ E,<seq>\n
 
 The controller emits telemetry frames autonomously at a configurable interval (default 20 ms / 50 Hz). Telemetry starts streaming as soon as the serial port is opened — no subscription command is needed.
 
+On boot, the firmware automatically rebases the current physical shaft angle to logical `0` before closed-loop tracking runs. This makes the startup behavior equivalent to an immediate `R,<seq>,0` without an acknowledgement frame and prevents a torque spike if the absolute encoder powers up away from the previous logical origin.
+
+Closed-loop tracking remains passive until the first valid `C` command is received. Until then, telemetry still streams, but the controller applies zero commanded torque instead of trying to hold a default target with `seq=0`.
+
 **Format:**
 ```
 T,<dial_id>,<seq>,<ang>,<spd>,<tor>,<foc_rate>,<status_bits>\n

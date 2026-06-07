@@ -313,6 +313,8 @@ void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_r
 {
   // Configure motor parameters
   M0_PP = _PP;
+
+  // Temporary ignored because we will determine direction automatically based on sensor readings during alignment
   M0_DIR = _DIR;
 
   // Apply holding torque at 3pi/2 (270°) to align rotor with known position
@@ -326,8 +328,10 @@ void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_r
 
   M0_setTorque(alignment_torque, _3PI_2 - 1.1); // Small angle offset to ensure stable settling on the correct pole
   delay(400); // Wait for magnetic settling
+  float negative_step_electrical_angle = M0_electricalAngle();
   M0_setTorque(alignment_torque, _3PI_2 + 1.1); // Small angle offset to ensure stable settling on the correct pole
   delay(300); // Wait for magnetic settling
+  float positive_step_electrical_angle = M0_electricalAngle();
   M0_setTorque(alignment_torque, _3PI_2 - 0.5); // Small angle offset to ensure stable settling on the correct pole
   delay(200); // Wait for magnetic settling
   M0_setTorque(alignment_torque, _3PI_2 + 0.5); // Small angle offset to ensure stable settling on the correct pole
@@ -345,6 +349,13 @@ void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_r
 
   // Stop motor
   M0_setTorque(0, _3PI_2);
+
+  // Determine sensor direction
+  if (positive_step_electrical_angle > negative_step_electrical_angle) {
+    M0_DIR = -1; // CCW direction
+  } else {
+    M0_DIR = 1; // CW direction
+  }
 }
 
 // ==================== SENSOR GETTER FUNCTIONS ====================
