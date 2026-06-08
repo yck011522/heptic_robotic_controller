@@ -50,7 +50,7 @@ int serial_buffer_index = 0;
 
 // Protocol state
 uint32_t last_processed_seq = 0; // seq from last processed C command
-bool control_target_received = true;
+bool control_target_received = true;  // Set to False initiall to require explicit host command before enabling tracking status bit
 bool fault_active = false;
 unsigned long fault_latched_until_ms = 0;
 

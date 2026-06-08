@@ -191,6 +191,20 @@ float _normalizeAngle(float angle)
   return a >= 0 ? a : (a + _2PI_F);
 }
 
+/// @brief Compute signed shortest-path angle difference a-b in [-PI, PI]
+/// @param a Angle a in radians [0, 2*PI)
+/// @param b Angle b in radians [0, 2*PI)
+/// @return Signed wrapped difference in radians
+float _angleDiff(float a, float b)
+{
+  float d = a - b;
+  if (d > _PI)
+    d -= _2PI_F;
+  else if (d < -_PI)
+    d += _2PI_F;
+  return d;
+}
+
 // ==================== PWM CONTROL FUNCTIONS ====================
 /// @brief Set Motor 0 three-phase PWM outputs
 /// @param Ua Phase A voltage (0 to Vbus)
@@ -306,7 +320,7 @@ float M0_electricalAngle()
 /// Applies fixed torque at 3pi/2 position, waits for magnetic settling, then records zero offset
 /// MUST be called during initialization with unloaded motor
 /// @param _PP Number of pole pairs for this motor
-/// @param _DIR Rotation direction: 1=CCW, -1=CW
+/// @param _DIR Fallback direction sign (used only if auto-detection movement is too small)
 /// @param alignment_torque Torque to apply during alignment (default: 6.0 Nm)
 /// @note Blocks for 1 second during alignment. Motor will experience brief torque pulse
 void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_rate)
@@ -314,7 +328,10 @@ void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_r
   // Configure motor parameters
   M0_PP = _PP;
 
-  // Temporary ignored because we will determine direction automatically based on sensor readings during alignment
+  // Reset zero offset so alignment measurements are not biased by prior calibration.
+  M0_zero_electric_angle = 0.0f;
+
+  // Use caller direction as fallback if auto-detection movement is too small.
   M0_DIR = _DIR;
 
   // Apply holding torque at 3pi/2 (270 deg) to align rotor with a known position
@@ -328,10 +345,12 @@ void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_r
 
   M0_setTorque(alignment_torque, _3PI_2 - 1.1); // Small angle offset to ensure stable settling on the correct pole
   delay(400); // Wait for magnetic settling
-  float negative_step_electrical_angle = M0_electricalAngle();
+  S0.Sensor_update();
+  float negative_step_mechanical_angle = S0.getMechanicalAngle();
   M0_setTorque(alignment_torque, _3PI_2 + 1.1); // Small angle offset to ensure stable settling on the correct pole
   delay(300); // Wait for magnetic settling
-  float positive_step_electrical_angle = M0_electricalAngle();
+  S0.Sensor_update();
+  float positive_step_mechanical_angle = S0.getMechanicalAngle();
   M0_setTorque(alignment_torque, _3PI_2 - 0.5); // Small angle offset to ensure stable settling on the correct pole
   delay(200); // Wait for magnetic settling
   M0_setTorque(alignment_torque, _3PI_2 + 0.5); // Small angle offset to ensure stable settling on the correct pole
@@ -343,19 +362,23 @@ void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_r
   M0_setTorque(alignment_torque, _3PI_2);
   delay(1000); // Wait for magnetic settling
 
+  // Determine sensor direction from wrap-safe mechanical movement between known electrical steps.
+  float sensor_step = _angleDiff(positive_step_mechanical_angle, negative_step_mechanical_angle);
+  const float min_detect_step = 0.01f; // ~0.57 deg: ignore jitter/noise
+  if (sensor_step > min_detect_step) {
+    M0_DIR = 1;
+  } else if (sensor_step < -min_detect_step) {
+    M0_DIR = -1;
+  } else {
+    M0_DIR = _DIR;
+  }
+
   // Read encoder angle at known rotor position to determine zero offset
   S0.Sensor_update();
-  M0_zero_electric_angle = M0_electricalAngle();
+  M0_zero_electric_angle = _normalizeAngle((float)(M0_DIR * M0_PP) * S0.getMechanicalAngle());
 
   // Stop motor
   M0_setTorque(0, _3PI_2);
-
-  // Determine sensor direction
-  if (positive_step_electrical_angle > negative_step_electrical_angle) {
-    M0_DIR = -1; // CCW direction
-  } else {
-    M0_DIR = 1; // CW direction
-  }
 }
 
 // ==================== SENSOR GETTER FUNCTIONS ====================
