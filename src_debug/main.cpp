@@ -6,7 +6,7 @@
 #include <string.h>
 
 // Firmware ID for host-side version checks.
-#define FW_VERSION "debug-encoder-0.3.0"
+#define FW_VERSION "debug-encoder-0.4.0"
 
 // Hardware mapping (matches current production firmware wiring).
 static const int PIN_PWM_A = 32;
@@ -64,7 +64,17 @@ static bool log_ready = false;
 static uint32_t run_seq = 0;
 static uint8_t run_turns_requested = DEFAULT_MECHANICAL_TURNS;
 static uint8_t run_turns_last = DEFAULT_MECHANICAL_TURNS;
-static bool diagnostics_enabled = true;
+
+// Diagnostic read modes:
+// 0: raw only
+// 1: status + raw
+// 2: status + raw + AGC
+// 3: status + raw + AGC + magnitude
+static const uint8_t DIAG_MODE_RAW_ONLY = 0;
+static const uint8_t DIAG_MODE_STATUS_RAW = 1;
+static const uint8_t DIAG_MODE_STATUS_RAW_AGC = 2;
+static const uint8_t DIAG_MODE_STATUS_RAW_AGC_MAG = 3;
+static uint8_t diag_read_mode = DIAG_MODE_STATUS_RAW_AGC_MAG;
 
 static float normalize_angle(float angle)
 {
@@ -186,6 +196,31 @@ static bool read_encoder_diagnostics(uint16_t *raw, uint8_t *status, uint8_t *ag
   return ok;
 }
 
+static bool read_encoder_by_mode(uint8_t mode, uint16_t *raw, uint8_t *status, uint8_t *agc, uint16_t *magnitude)
+{
+  switch (mode)
+  {
+  case DIAG_MODE_RAW_ONLY:
+    return read_raw_only(raw);
+
+  case DIAG_MODE_STATUS_RAW:
+    return read_status_and_raw(status, raw);
+
+  case DIAG_MODE_STATUS_RAW_AGC:
+  {
+    bool ok = read_status_and_raw(status, raw);
+    ok &= read_register8(AS5600_AGC_REG, agc);
+    return ok;
+  }
+
+  case DIAG_MODE_STATUS_RAW_AGC_MAG:
+    return read_encoder_diagnostics(raw, status, agc, magnitude);
+
+  default:
+    return false;
+  }
+}
+
 static bool parse_uint32_field(const char *field, uint32_t *value)
 {
   if (!field || field[0] == '\0')
@@ -202,9 +237,9 @@ static bool parse_uint32_field(const char *field, uint32_t *value)
 
 static void print_help()
 {
-  Serial.println("H,commands: V,<seq> | E,<seq> | D,<seq>[,<0|1>] | R,<seq>[,<turns>] | S,<seq>");
+  Serial.println("H,commands: V,<seq> | E,<seq> | D,<seq>[,<0..3>] | R,<seq>[,<turns>] | S,<seq>");
   Serial.println("H,turns: 0=no movement+motor disabled, 1=one turn, 2=two turns in 2s");
-  Serial.println("H,D query: D,<seq> ; D set: D,<seq>,<0|1>");
+  Serial.println("H,D modes: 0=raw 1=status+raw 2=status+raw+agc 3=status+raw+agc+mag");
   Serial.println("H,log stream: LOG_BEGIN/LOG_HEADER/LOG_DATA/LOG_END");
 }
 
@@ -238,7 +273,7 @@ static void dump_log()
   Serial.print(',');
   Serial.print(run_turns_last);
   Serial.print(',');
-  Serial.println(diagnostics_enabled ? 1 : 0);
+  Serial.println(diag_read_mode);
 }
 
 static void run_capture_once(uint8_t turns)
@@ -273,16 +308,7 @@ static void run_capture_once(uint8_t turns)
     uint8_t status = 0xFF;
     uint8_t agc = 0xFF;
     uint16_t magnitude = 0xFFFF;
-    bool ok = false;
-
-    if (diagnostics_enabled)
-    {
-      ok = read_encoder_diagnostics(&raw, &status, &agc, &magnitude);
-    }
-    else
-    {
-      ok = read_raw_only(&raw);
-    }
+    bool ok = read_encoder_by_mode(diag_read_mode, &raw, &status, &agc, &magnitude);
 
     samples[i].t_us = micros() - start_us;
     samples[i].openloop_el_angle_rad = commanded_el;
@@ -359,7 +385,7 @@ static void handle_command(char *line)
     Serial.print(',');
     Serial.print(run_turns_last);
     Serial.print(',');
-    Serial.println(diagnostics_enabled ? 1 : 0);
+    Serial.println(diag_read_mode);
     return;
   }
 
@@ -369,7 +395,7 @@ static void handle_command(char *line)
     if (diag_token && diag_token[0] != '\0')
     {
       uint32_t parsed = 0;
-      if (!parse_uint32_field(diag_token, &parsed) || parsed > 1)
+      if (!parse_uint32_field(diag_token, &parsed) || parsed > DIAG_MODE_STATUS_RAW_AGC_MAG)
       {
         Serial.print("D,");
         Serial.print(seq);
@@ -377,13 +403,13 @@ static void handle_command(char *line)
         return;
       }
 
-      diagnostics_enabled = (parsed != 0);
+      diag_read_mode = (uint8_t)parsed;
     }
 
     Serial.print("D,");
     Serial.print(seq);
     Serial.print(',');
-    Serial.println(diagnostics_enabled ? 1 : 0);
+    Serial.println(diag_read_mode);
     return;
   }
 
