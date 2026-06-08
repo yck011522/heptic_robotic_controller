@@ -9,6 +9,8 @@
 #include "DengFOC.h"
 #include "Dial.h"
 #include <Preferences.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -49,10 +51,43 @@ char serial_buffer[SERIAL_BUFFER_SIZE];
 int serial_buffer_index = 0;
 
 // Protocol state
-uint32_t last_processed_seq = 0; // seq from last processed C command
-bool control_target_received = true;
-bool fault_active = false;
-unsigned long fault_latched_until_ms = 0;
+volatile uint32_t last_processed_seq = 0; // seq from last processed C command
+volatile bool control_target_received = false;
+volatile bool fault_active = false;
+volatile unsigned long fault_latched_until_ms = 0;
+
+// Cross-core coordination primitives and shared snapshots
+static portMUX_TYPE state_mux = portMUX_INITIALIZER_UNLOCKED;
+
+struct PendingRebaseCommand
+{
+  bool valid;
+  double logical_angle_rad;
+};
+
+struct TelemetrySnapshot
+{
+  long angle_decideg;
+  long speed_decideg;
+  long torque_ma;
+  long foc_rate_hz;
+  uint16_t status_bits;
+};
+
+PendingRebaseCommand pending_rebase_command = {false, 0.0};
+DialConfig pending_dial_config;
+volatile bool config_update_pending = false;
+TelemetrySnapshot telemetry_snapshot = {0, 0, 0, 0, 0};
+
+TaskHandle_t control_task_handle = nullptr;
+TaskHandle_t comms_task_handle = nullptr;
+
+constexpr BaseType_t CONTROL_TASK_CORE = 1;
+constexpr BaseType_t COMMS_TASK_CORE = 0;
+constexpr UBaseType_t CONTROL_TASK_PRIORITY = 3;
+constexpr UBaseType_t COMMS_TASK_PRIORITY = 2;
+constexpr uint32_t CONTROL_TASK_STACK_WORDS = 4096;
+constexpr uint32_t COMMS_TASK_STACK_WORDS = 4096;
 
 // Telemetry and FOC rate measurement
 unsigned long telemetry_interval_ms = 20; // Telemetry reporting interval (ms) - modifiable via S command
@@ -108,11 +143,11 @@ static bool is_valid_angle_decideg(long angle_decideg)
   return angle_decideg >= -MAX_ANGLE_DECIDEG && angle_decideg <= MAX_ANGLE_DECIDEG;
 }
 
-static uint16_t build_status_bits()
+static uint16_t build_status_bits(bool target_received, bool fault_is_active)
 {
   uint16_t status_bits = 0;
 
-  if (dial_config0.enable_tracking && control_target_received)
+  if (dial_config0.enable_tracking && target_received)
     status_bits |= 1u << 0;
   if (dial_config0.enable_bounds_restoration)
     status_bits |= 1u << 1;
@@ -124,7 +159,7 @@ static uint16_t build_status_bits()
     status_bits |= 1u << 4;
   if (dial0.is_out_of_bounds())
     status_bits |= 1u << 5;
-  if (fault_active)
+  if (fault_is_active)
     status_bits |= 1u << 6;
 
   return status_bits;
@@ -135,18 +170,30 @@ static void latch_fault_for_ms(unsigned long duration_ms)
   unsigned long now = millis();
   unsigned long candidate_until = now + duration_ms;
 
+  portENTER_CRITICAL(&state_mux);
   fault_active = true;
   if (fault_latched_until_ms == 0 || (long)(candidate_until - fault_latched_until_ms) > 0)
     fault_latched_until_ms = candidate_until;
+  portEXIT_CRITICAL(&state_mux);
 }
 
 static void clear_fault_if_not_latched(unsigned long now)
 {
-  if (fault_latched_until_ms != 0 && (long)(now - fault_latched_until_ms) < 0)
-    return;
+  portENTER_CRITICAL(&state_mux);
+  bool still_latched = fault_latched_until_ms != 0 && (long)(now - fault_latched_until_ms) < 0;
+  if (!still_latched)
+  {
+    fault_active = false;
+    fault_latched_until_ms = 0;
+  }
+  portEXIT_CRITICAL(&state_mux);
+}
 
-  fault_active = false;
-  fault_latched_until_ms = 0;
+static void raise_fault()
+{
+  portENTER_CRITICAL(&state_mux);
+  fault_active = true;
+  portEXIT_CRITICAL(&state_mux);
 }
 
 static uint8_t load_persistent_dial_id()
@@ -164,44 +211,47 @@ static void store_persistent_dial_id(uint8_t new_dial_id)
   nvs_prefs.end();
 }
 
-static bool apply_runtime_parameter(const char *param, long value)
+static bool apply_runtime_parameter(DialConfig *config, const char *param, long value)
 {
+  if (!config || !param)
+    return false;
+
   float fixed_point_value = (float)value / 1000.0f;
 
   if (strcmp(param, "tracking_kp") == 0)
-    dial_config0.tracking_kp = fixed_point_value;
+    config->tracking_kp = fixed_point_value;
   else if (strcmp(param, "tracking_kd") == 0)
-    dial_config0.tracking_kd = fixed_point_value;
+    config->tracking_kd = fixed_point_value;
   else if (strcmp(param, "detent_kp") == 0)
-    dial_config0.detent_kp = fixed_point_value;
+    config->detent_kp = fixed_point_value;
   else if (strcmp(param, "bounds_kp") == 0)
-    dial_config0.bounds_kp = fixed_point_value;
+    config->bounds_kp = fixed_point_value;
   else if (strcmp(param, "detent_distance") == 0)
-    dial_config0.detent_distance = fixed_point_value * 3.1415926f / 1800.0f;
+    config->detent_distance = fixed_point_value * 3.1415926f / 1800.0f;
   else if (strcmp(param, "vibration_amplitude") == 0)
-    dial_config0.vibration_amplitude = fixed_point_value;
+    config->vibration_amplitude = fixed_point_value;
   else if (strcmp(param, "oob_kick_amplitude") == 0)
-    dial_config0.oob_kick_amplitude = fixed_point_value;
+    config->oob_kick_amplitude = fixed_point_value;
   else if (strcmp(param, "tracking_max_torque") == 0)
-    dial_config0.tracking_max_torque = fixed_point_value;
+    config->tracking_max_torque = fixed_point_value;
   else if (strcmp(param, "bounds_max_torque") == 0)
-    dial_config0.bounds_max_torque = fixed_point_value;
+    config->bounds_max_torque = fixed_point_value;
   else if (strcmp(param, "detent_max_torque") == 0)
-    dial_config0.detent_max_torque = fixed_point_value;
+    config->detent_max_torque = fixed_point_value;
   else if (strcmp(param, "vibration_pulse_interval_ms") == 0)
-    dial_config0.vibration_pulse_interval_ms = value > 0 ? (unsigned long)value : dial_config0.vibration_pulse_interval_ms;
+    config->vibration_pulse_interval_ms = value > 0 ? (unsigned long)value : config->vibration_pulse_interval_ms;
   else if (strcmp(param, "oob_kick_pulse_interval_ms") == 0)
-    dial_config0.oob_kick_pulse_interval_ms = value > 0 ? (unsigned long)value : dial_config0.oob_kick_pulse_interval_ms;
+    config->oob_kick_pulse_interval_ms = value > 0 ? (unsigned long)value : config->oob_kick_pulse_interval_ms;
   else if (strcmp(param, "enable_tracking") == 0)
-    dial_config0.enable_tracking = (value != 0);
+    config->enable_tracking = (value != 0);
   else if (strcmp(param, "enable_detent") == 0)
-    dial_config0.enable_detent = (value != 0);
+    config->enable_detent = (value != 0);
   else if (strcmp(param, "enable_bounds_restoration") == 0)
-    dial_config0.enable_bounds_restoration = (value != 0);
+    config->enable_bounds_restoration = (value != 0);
   else if (strcmp(param, "enable_oob_kick") == 0)
-    dial_config0.enable_oob_kick = (value != 0);
+    config->enable_oob_kick = (value != 0);
   else if (strcmp(param, "enable_vibration") == 0)
-    dial_config0.enable_vibration = (value != 0);
+    config->enable_vibration = (value != 0);
   else if (strcmp(param, "telemetry_interval") == 0)
   {
     if (value <= 0)
@@ -214,45 +264,45 @@ static bool apply_runtime_parameter(const char *param, long value)
   return true;
 }
 
-static bool read_runtime_parameter(const char *param, long *value)
+static bool read_runtime_parameter(const DialConfig *config, const char *param, long *value)
 {
-  if (!param || !value)
+  if (!config || !param || !value)
     return false;
 
   if (strcmp(param, "tracking_kp") == 0)
-    *value = (long)(dial_config0.tracking_kp * 1000.0f + (dial_config0.tracking_kp >= 0.0f ? 0.5f : -0.5f));
+    *value = (long)(config->tracking_kp * 1000.0f + (config->tracking_kp >= 0.0f ? 0.5f : -0.5f));
   else if (strcmp(param, "tracking_kd") == 0)
-    *value = (long)(dial_config0.tracking_kd * 1000.0f + (dial_config0.tracking_kd >= 0.0f ? 0.5f : -0.5f));
+    *value = (long)(config->tracking_kd * 1000.0f + (config->tracking_kd >= 0.0f ? 0.5f : -0.5f));
   else if (strcmp(param, "detent_kp") == 0)
-    *value = (long)(dial_config0.detent_kp * 1000.0f + (dial_config0.detent_kp >= 0.0f ? 0.5f : -0.5f));
+    *value = (long)(config->detent_kp * 1000.0f + (config->detent_kp >= 0.0f ? 0.5f : -0.5f));
   else if (strcmp(param, "bounds_kp") == 0)
-    *value = (long)(dial_config0.bounds_kp * 1000.0f + (dial_config0.bounds_kp >= 0.0f ? 0.5f : -0.5f));
+    *value = (long)(config->bounds_kp * 1000.0f + (config->bounds_kp >= 0.0f ? 0.5f : -0.5f));
   else if (strcmp(param, "detent_distance") == 0)
-    *value = (long)(dial_config0.detent_distance * 1800000.0f / 3.1415926f + (dial_config0.detent_distance >= 0.0f ? 0.5f : -0.5f));
+    *value = (long)(config->detent_distance * 1800000.0f / 3.1415926f + (config->detent_distance >= 0.0f ? 0.5f : -0.5f));
   else if (strcmp(param, "vibration_amplitude") == 0)
-    *value = (long)(dial_config0.vibration_amplitude * 1000.0f + (dial_config0.vibration_amplitude >= 0.0f ? 0.5f : -0.5f));
+    *value = (long)(config->vibration_amplitude * 1000.0f + (config->vibration_amplitude >= 0.0f ? 0.5f : -0.5f));
   else if (strcmp(param, "oob_kick_amplitude") == 0)
-    *value = (long)(dial_config0.oob_kick_amplitude * 1000.0f + (dial_config0.oob_kick_amplitude >= 0.0f ? 0.5f : -0.5f));
+    *value = (long)(config->oob_kick_amplitude * 1000.0f + (config->oob_kick_amplitude >= 0.0f ? 0.5f : -0.5f));
   else if (strcmp(param, "tracking_max_torque") == 0)
-    *value = (long)(dial_config0.tracking_max_torque * 1000.0f + (dial_config0.tracking_max_torque >= 0.0f ? 0.5f : -0.5f));
+    *value = (long)(config->tracking_max_torque * 1000.0f + (config->tracking_max_torque >= 0.0f ? 0.5f : -0.5f));
   else if (strcmp(param, "bounds_max_torque") == 0)
-    *value = (long)(dial_config0.bounds_max_torque * 1000.0f + (dial_config0.bounds_max_torque >= 0.0f ? 0.5f : -0.5f));
+    *value = (long)(config->bounds_max_torque * 1000.0f + (config->bounds_max_torque >= 0.0f ? 0.5f : -0.5f));
   else if (strcmp(param, "detent_max_torque") == 0)
-    *value = (long)(dial_config0.detent_max_torque * 1000.0f + (dial_config0.detent_max_torque >= 0.0f ? 0.5f : -0.5f));
+    *value = (long)(config->detent_max_torque * 1000.0f + (config->detent_max_torque >= 0.0f ? 0.5f : -0.5f));
   else if (strcmp(param, "vibration_pulse_interval_ms") == 0)
-    *value = (long)dial_config0.vibration_pulse_interval_ms;
+    *value = (long)config->vibration_pulse_interval_ms;
   else if (strcmp(param, "oob_kick_pulse_interval_ms") == 0)
-    *value = (long)dial_config0.oob_kick_pulse_interval_ms;
+    *value = (long)config->oob_kick_pulse_interval_ms;
   else if (strcmp(param, "enable_tracking") == 0)
-    *value = dial_config0.enable_tracking ? 1 : 0;
+    *value = config->enable_tracking ? 1 : 0;
   else if (strcmp(param, "enable_detent") == 0)
-    *value = dial_config0.enable_detent ? 1 : 0;
+    *value = config->enable_detent ? 1 : 0;
   else if (strcmp(param, "enable_bounds_restoration") == 0)
-    *value = dial_config0.enable_bounds_restoration ? 1 : 0;
+    *value = config->enable_bounds_restoration ? 1 : 0;
   else if (strcmp(param, "enable_oob_kick") == 0)
-    *value = dial_config0.enable_oob_kick ? 1 : 0;
+    *value = config->enable_oob_kick ? 1 : 0;
   else if (strcmp(param, "enable_vibration") == 0)
-    *value = dial_config0.enable_vibration ? 1 : 0;
+    *value = config->enable_vibration ? 1 : 0;
   else if (strcmp(param, "telemetry_interval") == 0)
     *value = (long)telemetry_interval_ms;
   else
@@ -262,6 +312,9 @@ static bool read_runtime_parameter(const char *param, long *value)
 }
 
 // ==================== INITIALIZATION ====================
+
+static void control_task(void *parameter);
+static void comms_task(void *parameter);
 
 void setup()
 {
@@ -283,8 +336,31 @@ void setup()
   // Rebase startup position so tracking starts from the present shaft angle.
   dial0.set_current_position(0.0, true);
 
+  pending_dial_config = dial_config0;
+
   // Initialize serial input buffer
   serial_buffer_index = 0;
+
+  BaseType_t control_task_result = xTaskCreatePinnedToCore(
+      control_task,
+      "control_task",
+      CONTROL_TASK_STACK_WORDS,
+      nullptr,
+      CONTROL_TASK_PRIORITY,
+      &control_task_handle,
+      CONTROL_TASK_CORE);
+
+  BaseType_t comms_task_result = xTaskCreatePinnedToCore(
+      comms_task,
+      "comms_task",
+      COMMS_TASK_STACK_WORDS,
+      nullptr,
+      COMMS_TASK_PRIORITY,
+      &comms_task_handle,
+      COMMS_TASK_CORE);
+
+  if (control_task_result != pdPASS || comms_task_result != pdPASS)
+    raise_fault();
 }
 
 // ==================== SERIAL INPUT HANDLING ====================
@@ -306,7 +382,7 @@ void parse_host_command(const char *line)
   uint32_t seq = 0;
   if (!parse_uint32_field(token, &seq))
   {
-    fault_active = true;
+    raise_fault();
     return;
   }
 
@@ -330,15 +406,19 @@ void parse_host_command(const char *line)
         !is_valid_angle_decideg(max_decideg) ||
         min_decideg > max_decideg)
     {
-      fault_active = true;
+      raise_fault();
       return;
     }
 
-    dial_config0.tracking_position = decideg_to_rad(target_decideg);
-    dial_config0.bounds_min_angle = decideg_to_rad(min_decideg);
-    dial_config0.bounds_max_angle = decideg_to_rad(max_decideg);
+    portENTER_CRITICAL(&state_mux);
+    pending_dial_config.tracking_position = decideg_to_rad(target_decideg);
+    pending_dial_config.bounds_min_angle = decideg_to_rad(min_decideg);
+    pending_dial_config.bounds_max_angle = decideg_to_rad(max_decideg);
+    config_update_pending = true;
     last_processed_seq = seq;
     control_target_received = true;
+    portEXIT_CRITICAL(&state_mux);
+
     clear_fault_if_not_latched(millis());
   }
   else if (cmd == 'R')
@@ -351,11 +431,15 @@ void parse_host_command(const char *line)
         !parse_long_field(current_pos_str, &current_pos_decideg) ||
         !is_valid_angle_decideg(current_pos_decideg))
     {
-      fault_active = true;
+      raise_fault();
       return;
     }
 
-    dial0.set_current_position(decideg_to_rad(current_pos_decideg), true);
+    portENTER_CRITICAL(&state_mux);
+    pending_rebase_command.logical_angle_rad = decideg_to_rad(current_pos_decideg);
+    pending_rebase_command.valid = true;
+    portEXIT_CRITICAL(&state_mux);
+
     clear_fault_if_not_latched(millis());
 
     Serial.print("R,");
@@ -370,11 +454,23 @@ void parse_host_command(const char *line)
 
     if (!param || !valstr || extra || !parse_long_field(valstr, &value))
     {
-      fault_active = true;
+      raise_fault();
       return;
     }
 
-    apply_runtime_parameter(param, value);
+    bool applied = false;
+    portENTER_CRITICAL(&state_mux);
+    applied = apply_runtime_parameter(&pending_dial_config, param, value);
+    if (applied)
+      config_update_pending = true;
+    portEXIT_CRITICAL(&state_mux);
+
+    if (!applied)
+    {
+      raise_fault();
+      return;
+    }
+
     clear_fault_if_not_latched(millis());
     Serial.print("S,");
     Serial.println(seq);
@@ -385,9 +481,20 @@ void parse_host_command(const char *line)
     char *extra = strtok(NULL, delim);
     long value = 0;
 
-    if (!param || extra || !read_runtime_parameter(param, &value))
+    if (!param || extra)
     {
-      fault_active = true;
+      raise_fault();
+      return;
+    }
+
+    bool read_ok = false;
+    portENTER_CRITICAL(&state_mux);
+    read_ok = read_runtime_parameter(&pending_dial_config, param, &value);
+    portEXIT_CRITICAL(&state_mux);
+
+    if (!read_ok)
+    {
+      raise_fault();
       return;
     }
 
@@ -406,7 +513,7 @@ void parse_host_command(const char *line)
 
     if (extra)
     {
-      fault_active = true;
+      raise_fault();
       return;
     }
 
@@ -415,7 +522,7 @@ void parse_host_command(const char *line)
       long requested_dial_id = 0;
       if (!parse_long_field(dial_id_str, &requested_dial_id) || requested_dial_id < 0 || requested_dial_id > 255)
       {
-        fault_active = true;
+        raise_fault();
         return;
       }
 
@@ -483,46 +590,68 @@ void process_serial_input()
 
 // ==================== MAIN CONTROL LOOP ====================
 
-void loop()
+static void control_task(void *parameter)
 {
-  unsigned long current_time = millis();
-  foc_cycle_count++;
+  (void)parameter;
 
-  if (fault_latched_until_ms != 0 && (long)(current_time - fault_latched_until_ms) >= 0)
-    clear_fault_if_not_latched(current_time);
-
-  // ==================== SERIAL INPUT ====================
-  // Non-blocking read of joint position commands from host
-  process_serial_input();
-
-  // ==================== FOC & MOTOR CONTROL ====================
-  runFOC_M0();
-
-  // Do not apply tracking torque until the host has provided an explicit target.
-  if (control_target_received)
+  while (true)
   {
-    dial0.calculate_and_apply_composite_torque(USE_CURRENT_CONTROL);
-  }
-  else
-  {
-    dial0.last_angle = dial0.get_logical_angle();
-    dial0.last_speed = dial0.get_motor_speed();
-    dial0.apply_torque(0.0f, USE_CURRENT_CONTROL);
-  }
+    unsigned long current_time = millis();
+    foc_cycle_count++;
 
-  // ==================== FOC RATE MEASUREMENT ====================
-  // Measure FOC rate over independent measurement window (decoupled from telemetry interval)
-  if (current_time - last_foc_rate_time >= FOC_RATE_MEASURE_INTERVAL)
-  {
-    last_foc_rate_hz = (float)foc_cycle_count * 1000.0 / (current_time - last_foc_rate_time);
-    foc_cycle_count = 0;
-    last_foc_rate_time = current_time;
-  }
+    if (fault_latched_until_ms != 0 && (long)(current_time - fault_latched_until_ms) >= 0)
+      clear_fault_if_not_latched(current_time);
 
-  // ==================== TELEMETRY TRANSMISSION ====================
-  // Transmit at configured telemetry interval: T,dial_id,seq,ang,spd,tor,foc_rate,status_bits\n
-  if (current_time - last_telemetry_time >= telemetry_interval_ms)
-  {
+    bool should_apply_rebase = false;
+    double rebase_angle_rad = 0.0;
+    bool target_received = false;
+    bool local_fault_active = false;
+
+    portENTER_CRITICAL(&state_mux);
+    if (config_update_pending)
+    {
+      dial_config0 = pending_dial_config;
+      config_update_pending = false;
+    }
+
+    if (pending_rebase_command.valid)
+    {
+      should_apply_rebase = true;
+      rebase_angle_rad = pending_rebase_command.logical_angle_rad;
+      pending_rebase_command.valid = false;
+    }
+
+    target_received = control_target_received;
+    local_fault_active = fault_active;
+    portEXIT_CRITICAL(&state_mux);
+
+    if (should_apply_rebase)
+      dial0.set_current_position(rebase_angle_rad, true);
+
+    // ==================== FOC & MOTOR CONTROL ====================
+    runFOC_M0();
+
+    // Do not apply tracking torque until the host has provided an explicit target.
+    if (target_received)
+    {
+      dial0.calculate_and_apply_composite_torque(USE_CURRENT_CONTROL);
+    }
+    else
+    {
+      dial0.last_angle = dial0.get_logical_angle();
+      dial0.last_speed = dial0.get_motor_speed();
+      dial0.apply_torque(0.0f, USE_CURRENT_CONTROL);
+    }
+
+    // ==================== FOC RATE MEASUREMENT ====================
+    // Measure FOC rate over independent measurement window (decoupled from telemetry interval)
+    if (current_time - last_foc_rate_time >= FOC_RATE_MEASURE_INTERVAL)
+    {
+      last_foc_rate_hz = (float)foc_cycle_count * 1000.0 / (current_time - last_foc_rate_time);
+      foc_cycle_count = 0;
+      last_foc_rate_time = current_time;
+    }
+
     long angle_decideg = rad_to_decideg(dial0.last_angle);
 
     // Clamp to ±MAX_ANGLE_DECIDEG
@@ -552,24 +681,69 @@ void loop()
     if (foc_rate_hz > 2000)
       foc_rate_hz = 2000;
 
-    uint16_t status_bits = build_status_bits();
+    uint16_t status_bits = build_status_bits(target_received, local_fault_active);
 
-    Serial.print("T,");
-    Serial.print(dial_id);
-    Serial.print(",");
-    Serial.print(last_processed_seq);
-    Serial.print(",");
-    Serial.print(angle_decideg);
-    Serial.print(",");
-    Serial.print(speed_decideg);
-    Serial.print(",");
-    Serial.print(torque_ma);
-    Serial.print(",");
-    Serial.print(foc_rate_hz);
-    Serial.print(",");
-    Serial.print(status_bits);
-    Serial.println();
+    // Share pre-quantized telemetry values to keep the comms task light and deterministic.
+    portENTER_CRITICAL(&state_mux);
+    telemetry_snapshot.angle_decideg = angle_decideg;
+    telemetry_snapshot.speed_decideg = speed_decideg;
+    telemetry_snapshot.torque_ma = torque_ma;
+    telemetry_snapshot.foc_rate_hz = foc_rate_hz;
+    telemetry_snapshot.status_bits = status_bits;
+    portEXIT_CRITICAL(&state_mux);
 
-    last_telemetry_time = current_time;
+    taskYIELD();
   }
+}
+
+static void comms_task(void *parameter)
+{
+  (void)parameter;
+
+  while (true)
+  {
+    unsigned long current_time = millis();
+
+    // ==================== SERIAL INPUT ====================
+    process_serial_input();
+
+    // ==================== TELEMETRY TRANSMISSION ====================
+    // Transmit at configured telemetry interval: T,dial_id,seq,ang,spd,tor,foc_rate,status_bits\n
+    if (current_time - last_telemetry_time >= telemetry_interval_ms)
+    {
+      TelemetrySnapshot local_snapshot;
+      uint32_t seq_snapshot = 0;
+
+      portENTER_CRITICAL(&state_mux);
+      local_snapshot = telemetry_snapshot;
+      seq_snapshot = last_processed_seq;
+      portEXIT_CRITICAL(&state_mux);
+
+      Serial.print("T,");
+      Serial.print(dial_id);
+      Serial.print(",");
+      Serial.print(seq_snapshot);
+      Serial.print(",");
+      Serial.print(local_snapshot.angle_decideg);
+      Serial.print(",");
+      Serial.print(local_snapshot.speed_decideg);
+      Serial.print(",");
+      Serial.print(local_snapshot.torque_ma);
+      Serial.print(",");
+      Serial.print(local_snapshot.foc_rate_hz);
+      Serial.print(",");
+      Serial.print(local_snapshot.status_bits);
+      Serial.println();
+
+      last_telemetry_time = current_time;
+    }
+
+    vTaskDelay(1);
+  }
+}
+
+void loop()
+{
+  // Work is performed by pinned FreeRTOS tasks; keep Arduino loop parked.
+  vTaskDelay(portMAX_DELAY);
 }
