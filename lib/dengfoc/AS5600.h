@@ -17,14 +17,13 @@ public:
 
 private:
   int _Mot_Num;
-  // AS5600 变量定义
-  // int sensor_direction=1;       //编码器旋转方向定义
+  // AS5600 tracking state
   float angle_prev = 0;           // Latest sampled sensor angle used for turns and velocity
-  uint32_t angle_prev_ts = 0;     // 上次调用 getAngle 的时间戳
-  float vel_angle_prev = 0;       // 最后一次调用 getVelocity 时的角度
-  uint32_t vel_angle_prev_ts = 0; // 最后速度计算时间戳
-  int32_t full_rotations = 0;     // 总圈数计数
-  int32_t vel_full_rotations = 0; // 用于速度计算的先前完整旋转圈数
+  uint32_t angle_prev_ts = 0;     // Timestamp of the latest angle update
+  float vel_angle_prev = 0;       // Angle used in the previous velocity calculation
+  uint32_t vel_angle_prev_ts = 0; // Timestamp used in the previous velocity calculation
+  int32_t full_rotations = 0;     // Cumulative full-rotation counter
+  int32_t vel_full_rotations = 0; // Rotation count used in the previous velocity calculation
   float last_valid_angle = 0;     // Last successful sensor reading (returned on I2C error)
   uint8_t last_status = 0;        // Last successful AS5600 status register value (0x0B)
   uint8_t last_agc = 0;           // Last successful AS5600 AGC register value (0x1A)

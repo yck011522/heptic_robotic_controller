@@ -59,28 +59,28 @@ LowPassFilter M0_Curr_Flt = LowPassFilter(0.05); ///< Motor 0 current filter
  * Three selectable control modes using cascaded/independent PID loops:
  *
  * 1. ANGLE LOOP (Primary setpoint):
- *    Input: angle error (degrees)  → Output: velocity command (rad/s)
+ *    Input: angle error (degrees) -> Output: velocity command (rad/s)
  *    limit=100 rad/s max velocity command
  *    Used in: set_Velocity_Angle(), set_Force_Angle()
  *
  * 2. VELOCITY LOOP (Primary feedback):
- *    Input: velocity error (rad/s) → Output: voltage command (V)
+ *    Input: velocity error (rad/s) -> Output: voltage command (V)
  *    limit=Vbus/2 max motor voltage
  *    Used in: set_Velocity_Angle(), setVelocity()
  *    Alternative standalone use: setVelocity()
  *
  * 3. CURRENT LOOP (Torque feedback):
- *    Input: current error (A) → Output: voltage command (V)
+ *    Input: current error (A) -> Output: voltage command (V)
  *    K_p=1.2 V/A (voltage per amp of error)
  *    limit=12.6V max motor voltage
  *    Used in: setTorque_current()
  *    Implements voltage-source current control for precise torque regulation
  *
  * CONTROL SIGNAL FLOW (examples):
- *  - set_Velocity_Angle(target):  angle_error → ANGLE_PID → vel_cmd → VELOCITY_PID → voltage → motor
- *  - setVelocity(target):          vel_error → VELOCITY_PID → voltage → motor
- *  - set_Force_Angle(target):      angle_error → ANGLE_PID → voltage → motor
- *  - setTorque_current(target):    current_error → CURRENT_PID → voltage → motor
+ *  - set_Velocity_Angle(target):  angle_error -> ANGLE_PID -> vel_cmd -> VELOCITY_PID -> voltage -> motor
+ *  - setVelocity(target):          vel_error -> VELOCITY_PID -> voltage -> motor
+ *  - set_Force_Angle(target):      angle_error -> ANGLE_PID -> voltage -> motor
+ *  - setTorque_current(target):    current_error -> CURRENT_PID -> voltage -> motor
  */
 
 // Motor 0: Velocity loop, Angle loop, Current loop
@@ -135,7 +135,7 @@ void DFOC_M0_SET_VEL_PID(float P, float I, float D, float ramp, float limit)
 /// @param P Proportional gain (rad/s per degree error)
 /// @param I Integral gain
 /// @param D Derivative gain
-/// @param ramp Output ramp rate (rad/s²) - limits velocity acceleration
+/// @param ramp Output ramp rate (rad/s^2) - limits velocity acceleration
 /// @param limit Maximum velocity command (rad/s) clamping
 void DFOC_M0_SET_ANGLE_PID(float P, float I, float D, float ramp, float limit)
 {
@@ -295,7 +295,7 @@ void DFOC_Vbus(float power_supply)
 /// @return Electrical angle in radians [0, 2*PI), accounting for PP and direction
 float M0_electricalAngle()
 {
-  // Electrical angle = (Mechanical angle × PP × DIR) - Zero offset
+  // Electrical angle = (Mechanical angle * PP * DIR) - zero offset
   // Accounts for motor pole pairs and calibration offset
   // Result normalized to [0, 2*PI) for commutation alignment
   return _normalizeAngle((float)(M0_DIR * M0_PP) * S0.getMechanicalAngle() - M0_zero_electric_angle);
@@ -317,9 +317,9 @@ void DFOC_M0_alignSensor(int _PP, int _DIR, float alignment_torque, float ramp_r
   // Temporary ignored because we will determine direction automatically based on sensor readings during alignment
   M0_DIR = _DIR;
 
-  // Apply holding torque at 3pi/2 (270°) to align rotor with known position
+  // Apply holding torque at 3pi/2 (270 deg) to align rotor with a known position
   // Gradual ramp to holding torque to prevent mechanical shock
-  // Step increment = ramp_rate (torque/s) × 0.1s (100ms per step)
+  // Step increment = ramp_rate (torque/s) * 0.1s (100 ms per step)
   float step = fmaxf(ramp_rate * 0.1f, 0.001f);
   for (float t = 0; t <= alignment_torque; t += step) {
     M0_setTorque(t, _3PI_2);
@@ -486,7 +486,7 @@ void DFOC_M0_setTorque(float Target)
 /// @brief Motor 0 position control with velocity feedforward (cascaded loops)
 /// Signal flow: angle_error -> ANGLE_PID -> velocity_target -> VELOCITY_PID -> voltage_command -> motor
 /// @param Target Target mechanical angle (radians)
-/// @note ANGLE_PID output (velocity) is subtracted from actual velocity as error input to VEL_PIД
+/// @note ANGLE_PID output (velocity) is subtracted from actual velocity as error input to VEL_PID
 void DFOC_M0_set_Velocity_Angle(float Target)
 {
   DFOC_M0_setTorque(DFOC_M0_VEL_PID(DFOC_M0_ANGLE_PID((Target - DFOC_M0_Angle()) * 180 / PI) - DFOC_M0_Velocity()));

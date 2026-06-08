@@ -11,7 +11,7 @@
 
 #include <Arduino.h>
 
-// 函数声明
+// Function declarations
 void M0_setPwm(float Ua, float Ub, float Uc);
 float M0_setTorque(float Uq, float angle_el);
 void DFOC_enable();
@@ -23,7 +23,7 @@ float M0_electricalAngle();
 float serial_motor_target();
 String serialReceiveUserCommand();
 
-// 传感器读取
+// Sensor accessors
 float DFOC_M0_Velocity();
 double DFOC_M0_Angle();
 float DFOC_M0_Current();
@@ -31,7 +31,7 @@ uint8_t DFOC_M0_EncoderStatus();
 uint8_t DFOC_M0_EncoderAGC();
 bool DFOC_M0_EncoderDiagnosticsValid();
 
-// PID控制
+// PID configuration
 void DFOC_M0_SET_ANGLE_PID(float P, float I, float D, float ramp, float limit);
 void DFOC_M0_SET_VEL_PID(float P, float I, float D, float ramp, float limit);
 void DFOC_M0_SET_CURRENT_PID(float P, float I, float D, float ramp);
@@ -39,16 +39,16 @@ void DFOC_M0_SET_CURRENT_PID(float P, float I, float D, float ramp);
 float DFOC_M0_VEL_PID(float error);
 float DFOC_M0_ANGLE_PID(float error);
 
-// 简易接口函数
+// High-level command wrappers
 void DFOC_M0_set_Velocity_Angle(float Target);
 void DFOC_M0_setVelocity(float Target);
 void DFOC_M0_set_Force_Angle(float Target);
 void DFOC_M0_setTorque(float Target);
 
-// 电流力矩环
+// Current/torque loop
 void DFOC_M0_setTorque_current(float Target);
 
-// 运行FOC循环
+// FOC update loop
 void runFOC_M0();
 
 #endif
