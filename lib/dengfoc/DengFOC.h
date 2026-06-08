@@ -27,6 +27,9 @@ String serialReceiveUserCommand();
 float DFOC_M0_Velocity();
 double DFOC_M0_Angle();
 float DFOC_M0_Current();
+uint8_t DFOC_M0_EncoderStatus();
+uint8_t DFOC_M0_EncoderAGC();
+bool DFOC_M0_EncoderDiagnosticsValid();
 
 // PID控制
 void DFOC_M0_SET_ANGLE_PID(float P, float I, float D, float ramp, float limit);

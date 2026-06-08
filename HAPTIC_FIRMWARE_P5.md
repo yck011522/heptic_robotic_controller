@@ -580,3 +580,23 @@ These notes are here so the firmware developer can see the host intent.
 - The existing simulator already seeds virtual dial position from the robot's
   measured actual pose. The real firmware should support the same workflow via
   the `R` command.
+
+---
+
+## 14. Encoder Read Path Lesson
+
+Bench debugging at `800 Hz` capture rate found a clear difference in AS5600 read stability
+depending on which registers are sampled in the same loop cycle.
+
+- `raw only` produced significantly more outlier jumps in noisy motor-driving conditions.
+- `status + raw` reduced those outliers but was still less stable than the richer path.
+- `status + raw + AGC` was consistently the most stable practical mode in current tests.
+- Adding `magnitude` on top of `status + raw + AGC` did not materially change stability in
+  the latest bench run.
+
+Mainline library note:
+
+- The core AS5600 path in `lib/dengfoc` now captures `status + raw + AGC` together for each
+  sensor sample.
+- Control logic does not yet gate torque behavior on status/AGC; these diagnostics are
+  currently for observability and future safety logic.

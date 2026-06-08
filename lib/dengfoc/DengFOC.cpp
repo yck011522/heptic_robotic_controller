@@ -367,6 +367,27 @@ double DFOC_M0_Angle()
   return (double)M0_DIR * S0.getAngle();
 }
 
+/// @brief Get the last AS5600 status register value (0x0B)
+/// @return Latest status byte captured by the encoder read path
+uint8_t DFOC_M0_EncoderStatus()
+{
+  return S0.getLastStatus();
+}
+
+/// @brief Get the last AS5600 AGC value (0x1A)
+/// @return Latest AGC byte captured by the encoder read path
+uint8_t DFOC_M0_EncoderAGC()
+{
+  return S0.getLastAGC();
+}
+
+/// @brief Report whether the last status/raw/agc read path completed successfully
+/// @return true when the latest diagnostics snapshot is valid
+bool DFOC_M0_EncoderDiagnosticsValid()
+{
+  return S0.hasValidDiagnostics();
+}
+
 // ==================== CURRENT CALCULATION FUNCTIONS ====================
 /// @brief Transform phase currents (Ia, Ib) to q-axis current using Park transform
 /// Performs abc->alphabeta->dq transformation for direct torque measurement

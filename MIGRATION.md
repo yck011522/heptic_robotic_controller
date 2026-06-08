@@ -72,3 +72,11 @@ validation work landed.
 - The new automated bounds coverage is [validation/test_bounds_behavior.py](validation/test_bounds_behavior.py).
 - The manual acceptance paths are intentionally separate from automated scripts because they depend on felt behavior, not only serial observables.
 - Overnight soak work is intentionally deferred until the multi-dial bench session is ready.
+- Encoder read-path lesson from debug captures (`turns=2`, `800 Hz`): `raw only` and `status+raw`
+  showed frequent outlier steps, while `status+raw+agc` reduced outliers to near-zero; adding
+  `magnitude` on top did not materially improve stability in the latest run.
+- The core AS5600 path in `lib/dengfoc` has been updated to capture `status+raw+agc` each sample
+  so the main firmware benefits from the more stable acquisition sequence.
+- New diagnostics accessors were added in `DengFOC` (`DFOC_M0_EncoderStatus`,
+  `DFOC_M0_EncoderAGC`, `DFOC_M0_EncoderDiagnosticsValid`) for future use; no control-mode
+  behavior change is enabled yet.
