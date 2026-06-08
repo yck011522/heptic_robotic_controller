@@ -1,12 +1,13 @@
 #include <Arduino.h>
 #include <Wire.h>
+#include <AS5600.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 // Firmware ID for host-side version checks.
-#define FW_VERSION "debug-encoder-0.4.0"
+#define FW_VERSION "external-lib-encoder-0.1.0"
 
 // Hardware mapping (matches current production firmware wiring).
 static const int PIN_PWM_A = 32;
@@ -16,14 +17,8 @@ static const int PIN_ENABLE = 12;
 static const int I2C_SDA_PIN = 19;
 static const int I2C_SCL_PIN = 18;
 
-static const uint8_t AS5600_ADDR = 0x36;
-static const uint8_t AS5600_STATUS_REG = 0x0B;
-static const uint8_t AS5600_ANGLE_REG = 0x0C;
-static const uint8_t AS5600_AGC_REG = 0x1A;
-static const uint8_t AS5600_MAGNITUDE_REG = 0x1B;
-
 static const float VBUS_VOLTS = 12.0f;
-static const float OPEN_LOOP_UQ_VOLTS = 8.0f;
+static const float OPEN_LOOP_UQ_VOLTS = 2.0f;
 static const int MOTOR_POLE_PAIRS = 14;
 static const int ELECTRICAL_DIRECTION = -1;
 
@@ -49,7 +44,7 @@ struct LogSample
   uint8_t status;
   // AS5600 AGC register.
   uint8_t agc;
-  // AS5600 magnitude register (0x1B/0x1C).
+  // AS5600 magnitude register.
   uint16_t magnitude;
 };
 
@@ -75,6 +70,8 @@ static const uint8_t DIAG_MODE_STATUS_RAW = 1;
 static const uint8_t DIAG_MODE_STATUS_RAW_AGC = 2;
 static const uint8_t DIAG_MODE_STATUS_RAW_AGC_MAG = 3;
 static uint8_t diag_read_mode = DIAG_MODE_STATUS_RAW_AGC_MAG;
+
+static AS5600 encoder(&Wire);
 
 static float normalize_angle(float angle)
 {
@@ -123,76 +120,44 @@ static void set_motor_enabled(bool enabled)
   digitalWrite(PIN_ENABLE, enabled ? HIGH : LOW);
 }
 
-static bool read_status_and_raw(uint8_t *status, uint16_t *raw)
+static bool pop_encoder_ok()
 {
-  // Read status and raw angle together for coherent sampling.
-  Wire.beginTransmission(AS5600_ADDR);
-  Wire.write(AS5600_STATUS_REG);
-  if (Wire.endTransmission(false) != 0)
-    return false;
-
-  if (Wire.requestFrom((int)AS5600_ADDR, 3) != 3)
-    return false;
-
-  *status = Wire.read();
-  uint8_t msb = Wire.read();
-  uint8_t lsb = Wire.read();
-  *raw = (uint16_t)(((msb & 0x0F) << 8) | lsb);
-  return true;
+  int err = encoder.lastError();
+  return err == AS5600_OK;
 }
 
 static bool read_raw_only(uint16_t *raw)
 {
-  Wire.beginTransmission(AS5600_ADDR);
-  Wire.write(AS5600_ANGLE_REG);
-  if (Wire.endTransmission(false) != 0)
-    return false;
-
-  if (Wire.requestFrom((int)AS5600_ADDR, 2) != 2)
-    return false;
-
-  uint8_t msb = Wire.read();
-  uint8_t lsb = Wire.read();
-  *raw = (uint16_t)(((msb & 0x0F) << 8) | lsb);
-  return true;
+  *raw = encoder.rawAngle();
+  delayMicroseconds(100); // Small delay to ensure I2C transaction completes before checking error status.
+  return pop_encoder_ok();
+  
 }
 
-static bool read_register8(uint8_t reg, uint8_t *value)
+static bool read_status_and_raw(uint8_t *status, uint16_t *raw)
 {
-  Wire.beginTransmission(AS5600_ADDR);
-  Wire.write(reg);
-  if (Wire.endTransmission(false) != 0)
-    return false;
+  bool ok = true;
 
-  if (Wire.requestFrom((int)AS5600_ADDR, 1) != 1)
-    return false;
+  *status = encoder.readStatus();
+  ok &= pop_encoder_ok();
 
-  *value = Wire.read();
-  return true;
-}
+  *raw = encoder.rawAngle();
+  ok &= pop_encoder_ok();
 
-static bool read_register16(uint8_t reg, uint16_t *value)
-{
-  Wire.beginTransmission(AS5600_ADDR);
-  Wire.write(reg);
-  if (Wire.endTransmission(false) != 0)
-    return false;
-
-  if (Wire.requestFrom((int)AS5600_ADDR, 2) != 2)
-    return false;
-
-  uint8_t msb = Wire.read();
-  uint8_t lsb = Wire.read();
-  *value = (uint16_t)((msb << 8) | lsb);
-  return true;
+  return ok;
 }
 
 static bool read_encoder_diagnostics(uint16_t *raw, uint8_t *status, uint8_t *agc, uint16_t *magnitude)
 {
   bool ok = true;
   ok &= read_status_and_raw(status, raw);
-  ok &= read_register8(AS5600_AGC_REG, agc);
-  ok &= read_register16(AS5600_MAGNITUDE_REG, magnitude);
+
+  *agc = encoder.readAGC();
+  ok &= pop_encoder_ok();
+
+  *magnitude = encoder.readMagnitude();
+  ok &= pop_encoder_ok();
+
   return ok;
 }
 
@@ -209,7 +174,8 @@ static bool read_encoder_by_mode(uint8_t mode, uint16_t *raw, uint8_t *status, u
   case DIAG_MODE_STATUS_RAW_AGC:
   {
     bool ok = read_status_and_raw(status, raw);
-    ok &= read_register8(AS5600_AGC_REG, agc);
+    *agc = encoder.readAGC();
+    ok &= pop_encoder_ok();
     return ok;
   }
 
@@ -501,9 +467,13 @@ void setup()
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, 400000UL);
   Wire.setTimeOut(2);
 
+  bool encoder_ok = encoder.begin();
+
   set_openloop_torque(0.0f, 0.0f);
 
-  Serial.println("BOOT,debug_encoder_ready");
+  Serial.println("BOOT,external_lib_encoder_ready");
+  Serial.print("BOOT,encoder_begin,");
+  Serial.println(encoder_ok ? 1 : 0);
   print_help();
 }
 

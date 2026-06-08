@@ -1,0 +1,5 @@
+mode,mode_label,samples,sensor_error_count,count_raw_0,count_raw_4095,naive_spike_count,wrap_spike_count,wrap_step_max
+0,raw_only,1600,0,37,12,207,193,1987
+1,status_raw,1600,0,70,49,458,432,2014
+2,status_raw_agc,1600,0,1,0,3,1,927
+3,status_raw_agc_mag,1600,0,0,0,3,1,914
