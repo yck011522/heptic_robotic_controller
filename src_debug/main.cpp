@@ -64,6 +64,7 @@ static bool log_ready = false;
 static uint32_t run_seq = 0;
 static uint8_t run_turns_requested = DEFAULT_MECHANICAL_TURNS;
 static uint8_t run_turns_last = DEFAULT_MECHANICAL_TURNS;
+static bool diagnostics_enabled = true;
 
 static float normalize_angle(float angle)
 {
@@ -130,6 +131,22 @@ static bool read_status_and_raw(uint8_t *status, uint16_t *raw)
   return true;
 }
 
+static bool read_raw_only(uint16_t *raw)
+{
+  Wire.beginTransmission(AS5600_ADDR);
+  Wire.write(AS5600_ANGLE_REG);
+  if (Wire.endTransmission(false) != 0)
+    return false;
+
+  if (Wire.requestFrom((int)AS5600_ADDR, 2) != 2)
+    return false;
+
+  uint8_t msb = Wire.read();
+  uint8_t lsb = Wire.read();
+  *raw = (uint16_t)(((msb & 0x0F) << 8) | lsb);
+  return true;
+}
+
 static bool read_register8(uint8_t reg, uint8_t *value)
 {
   Wire.beginTransmission(AS5600_ADDR);
@@ -185,8 +202,9 @@ static bool parse_uint32_field(const char *field, uint32_t *value)
 
 static void print_help()
 {
-  Serial.println("H,commands: V,<seq> | E,<seq> | R,<seq>[,<turns>] | S,<seq>");
+  Serial.println("H,commands: V,<seq> | E,<seq> | D,<seq>[,<0|1>] | R,<seq>[,<turns>] | S,<seq>");
   Serial.println("H,turns: 0=no movement+motor disabled, 1=one turn, 2=two turns in 2s");
+  Serial.println("H,D query: D,<seq> ; D set: D,<seq>,<0|1>");
   Serial.println("H,log stream: LOG_BEGIN/LOG_HEADER/LOG_DATA/LOG_END");
 }
 
@@ -218,7 +236,9 @@ static void dump_log()
   Serial.print("LOG_END,");
   Serial.print(SAMPLE_COUNT);
   Serial.print(',');
-  Serial.println(run_turns_last);
+  Serial.print(run_turns_last);
+  Serial.print(',');
+  Serial.println(diagnostics_enabled ? 1 : 0);
 }
 
 static void run_capture_once(uint8_t turns)
@@ -250,10 +270,19 @@ static void run_capture_once(uint8_t turns)
       set_openloop_torque(OPEN_LOOP_UQ_VOLTS, commanded_el);
 
     uint16_t raw = 0;
-    uint8_t status = 0;
-    uint8_t agc = 0;
-    uint16_t magnitude = 0;
-    bool ok = read_encoder_diagnostics(&raw, &status, &agc, &magnitude);
+    uint8_t status = 0xFF;
+    uint8_t agc = 0xFF;
+    uint16_t magnitude = 0xFFFF;
+    bool ok = false;
+
+    if (diagnostics_enabled)
+    {
+      ok = read_encoder_diagnostics(&raw, &status, &agc, &magnitude);
+    }
+    else
+    {
+      ok = read_raw_only(&raw);
+    }
 
     samples[i].t_us = micros() - start_us;
     samples[i].openloop_el_angle_rad = commanded_el;
@@ -328,7 +357,33 @@ static void handle_command(char *line)
     Serial.print(',');
     Serial.print(log_ready ? "LOG_READY" : "NO_LOG");
     Serial.print(',');
-    Serial.println(run_turns_last);
+    Serial.print(run_turns_last);
+    Serial.print(',');
+    Serial.println(diagnostics_enabled ? 1 : 0);
+    return;
+  }
+
+  if (strcmp(token, "D") == 0)
+  {
+    char *diag_token = strtok(nullptr, ",");
+    if (diag_token && diag_token[0] != '\0')
+    {
+      uint32_t parsed = 0;
+      if (!parse_uint32_field(diag_token, &parsed) || parsed > 1)
+      {
+        Serial.print("D,");
+        Serial.print(seq);
+        Serial.println(",ERR,bad_value");
+        return;
+      }
+
+      diagnostics_enabled = (parsed != 0);
+    }
+
+    Serial.print("D,");
+    Serial.print(seq);
+    Serial.print(',');
+    Serial.println(diagnostics_enabled ? 1 : 0);
     return;
   }
 
